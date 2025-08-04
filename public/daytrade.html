@@ -27,7 +27,7 @@
     <div id="loadingScreen" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
         <div class="text-center">
             <div class="loader inline-block"></div>
-            <p class="text-gray-400 mt-4 text-lg">Conectando e carregando dados...</p>
+            <p id="loadingStatus" class="text-gray-400 mt-4 text-lg">Conectando e carregando dados...</p>
         </div>
     </div>
 
@@ -54,7 +54,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <!-- Coluna do Gráfico -->
                 <div class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Intraday (Simulado) - <span id="dayTradeAsset"></span></h3>
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Intraday (1 min) - <span id="dayTradeAsset"></span></h3>
                     <div class="chart-container"><canvas id="dayTradeChart"></canvas></div>
                 </div>
 
@@ -103,7 +103,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
@@ -117,12 +116,14 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
 
         let dayTradeChart = null;
-        let dayTradeSimulationInterval = null;
+        let dayTradeReplayInterval = null;
         let dayTradeState = {};
         let activeAssetKey = 'wdo'; // Ativo padrão
+
+        // SUA NOVA CHAVE DE API DA ALPHA VANTAGE
+        const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
 
         const markets = {
             bgi: { name: 'Boi Gordo', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
@@ -132,9 +133,18 @@
             wdo: { name: 'Mini Dólar', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
             icf: { name: 'Café Arábica', code: 'ICF', contractSize: 100, unit: 'sacas', currency: 'USD' }
         };
+        
+        // Mapeamento para os símbolos da Alpha Vantage (Exemplos, podem precisar de ajuste)
+        const marketSymbolMapping = {
+            wdo: 'WDOV24.SAO', // Exemplo: Contrato V de 2024
+            dol: 'DOLV24.SAO', // Exemplo: Contrato V de 2024
+            bgi: 'BGIK24.SAO', // Exemplo: Contrato K de 2024
+            // Adicione outros ativos aqui
+        };
 
         const ui = {
             loadingScreen: document.getElementById('loadingScreen'),
+            loadingStatus: document.getElementById('loadingStatus'),
             appContainer: document.getElementById('appContainer'),
             userEmail: document.getElementById('userEmail'),
             logoutBtn: document.getElementById('logoutBtn'),
@@ -157,24 +167,19 @@
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 ui.userEmail.textContent = user.email;
-                
-                // Pega o ativo da URL
                 const urlParams = new URLSearchParams(window.location.search);
                 const assetParam = urlParams.get('asset');
                 if (markets[assetParam]) {
                     activeAssetKey = assetParam;
                 }
-
-                // Inicia a aplicação
                 await initDayTradePage(user);
             } else {
-                // Se não estiver logado, redireciona para a página de login
                 window.location.href = './index.html';
             }
         });
 
         ui.logoutBtn.addEventListener('click', () => {
-            if (dayTradeSimulationInterval) clearInterval(dayTradeSimulationInterval);
+            if (dayTradeReplayInterval) clearInterval(dayTradeReplayInterval);
             signOut(auth);
         });
 
@@ -182,93 +187,107 @@
             const market = markets[activeAssetKey];
             ui.dayTradeAsset.textContent = market.name;
 
-            const historicalData = await getHistoricalData(user, activeAssetKey);
-
-            if (!historicalData || historicalData.length === 0) {
-                alert(`Dados históricos para ${market.name} não encontrados. Por favor, carregue-os na página de backtest primeiro.`);
-                ui.loadingScreen.innerHTML = `<p class="text-red-400">Falha ao carregar dados. Redirecionando...</p>`;
-                setTimeout(() => window.location.href = './index.html', 3000);
+            const apiSymbol = marketSymbolMapping[activeAssetKey];
+            if (!apiSymbol) {
+                handleError(`Ativo "${market.name}" não mapeado para a API. Adicione-o em 'marketSymbolMapping'.`);
                 return;
             }
 
-            ui.loadingScreen.classList.add('hidden');
-            ui.appContainer.classList.remove('hidden');
-            startDayTradeSimulation(historicalData);
+            try {
+                ui.loadingStatus.textContent = `Buscando dados intraday para ${apiSymbol}...`;
+                const intradayData = await fetchIntradayData(apiSymbol);
+
+                if (!intradayData || intradayData.length === 0) {
+                    handleError(`Não foram encontrados dados intraday para ${apiSymbol}. Verifique o símbolo ou a chave da API.`);
+                    return;
+                }
+                
+                ui.loadingScreen.classList.add('hidden');
+                ui.appContainer.classList.remove('hidden');
+                startDayTradeReplay(intradayData);
+
+            } catch (error) {
+                console.error("Erro ao inicializar a página de day trade:", error);
+                handleError(error.message);
+            }
         }
 
-        async function getHistoricalData(user, marketCode) {
-            if (!user) return null;
-            try {
-                const docRef = doc(db, 'users', user.uid, 'markets', marketCode);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    return data?.ohlc?.map(item => ({ ...item, date: item.date.toDate() })) || null;
-                }
-                return null;
-            } catch (error) {
-                console.error("Erro ao buscar dados históricos:", error);
-                return null;
+        async function fetchIntradayData(symbol) {
+            // NOTA DE SEGURANÇA: Em uma aplicação real, a chave de API não deve ficar no código do frontend.
+            // Ela deve ser usada em um backend (como uma Firebase Cloud Function) para proteger sua conta.
+            const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=1min&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error('Falha na comunicação com a API da Alpha Vantage.');
             }
+            
+            const data = await response.json();
+
+            if (data['Error Message'] || !data['Time Series (1min)']) {
+                console.error("Erro da API Alpha Vantage:", data);
+                throw new Error(data['Note'] || data['Error Message'] || 'Resposta inválida da API. Verifique o símbolo do ativo.');
+            }
+
+            const timeSeries = data['Time Series (1min)'];
+            const formattedData = Object.entries(timeSeries).map(([timestamp, values]) => ({
+                x: new Date(timestamp).getTime(),
+                o: parseFloat(values['1. open']),
+                h: parseFloat(values['2. high']),
+                l: parseFloat(values['3. low']),
+                c: parseFloat(values['4. close'])
+            })).reverse(); // A API retorna do mais novo para o mais antigo, então revertemos.
+
+            return formattedData;
+        }
+
+        function handleError(message) {
+            ui.loadingStatus.innerHTML = `<p class="text-red-400">${message}</p><p class="text-gray-500 text-sm mt-2">Você será redirecionado em 5 segundos...</p>`;
+            setTimeout(() => window.location.href = './index.html', 5000);
         }
 
         function resetDayTradeState() {
             const market = markets[activeAssetKey];
             dayTradeState = {
-                position: 'FLAT', // 'LONG', 'SHORT', 'FLAT'
-                quantity: 0,
-                avgPrice: 0,
-                openPnl: 0,
-                closedPnl: 0,
-                currentPrice: 0,
-                contractSize: market.contractSize,
-                currency: market.currency,
+                position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0,
+                contractSize: market.contractSize, currency: market.currency,
             };
             updatePositionUI();
         }
 
-        function startDayTradeSimulation(historicalData) {
+        function startDayTradeReplay(intradayData) {
             resetDayTradeState();
             
-            const lastCandle = historicalData[historicalData.length - 1];
-            let currentPrice = lastCandle.close;
-            let tickCount = 0;
-            const candleDuration = 60; // 60 ticks = 1 minuto
-            let currentMinuteCandle = {
-                x: new Date().getTime(), o: currentPrice, h: currentPrice, l: currentPrice, c: currentPrice
-            };
-            
-            setupDayTradeChart([currentMinuteCandle]);
+            let dataIndex = 0;
+            const replaySpeed = 1000; // 1 segundo por candle de 1 minuto
 
-            dayTradeSimulationInterval = setInterval(() => {
-                const volatility = 0.0005;
-                const rand = Math.random() - 0.5;
-                currentPrice *= (1 + rand * volatility);
+            setupDayTradeChart(intradayData.slice(0, 1)); // Começa o gráfico com o primeiro candle
+
+            dayTradeReplayInterval = setInterval(() => {
+                if (dataIndex >= intradayData.length) {
+                    clearInterval(dayTradeReplayInterval);
+                    ui.currentPriceDisplay.textContent = "Sessão Encerrada";
+                    return;
+                }
+
+                const currentCandle = intradayData[dataIndex];
+                const currentPrice = currentCandle.c; // Usamos o fechamento do candle como preço atual
+                
                 dayTradeState.currentPrice = currentPrice;
                 ui.currentPriceDisplay.textContent = currentPrice.toFixed(2);
                 
-                currentMinuteCandle.c = currentPrice;
-                if (currentPrice > currentMinuteCandle.h) currentMinuteCandle.h = currentPrice;
-                if (currentPrice < currentMinuteCandle.l) currentMinuteCandle.l = currentPrice;
-
-                tickCount++;
-
-                if (tickCount >= candleDuration) {
-                    tickCount = 0;
-                    dayTradeChart.data.datasets[0].data.push(currentMinuteCandle);
-                    currentMinuteCandle = {
-                        x: new Date().getTime(), o: currentPrice, h: currentPrice, l: currentPrice, c: currentPrice
-                    };
-                }
-
+                // Atualiza o gráfico
                 const chartData = dayTradeChart.data.datasets[0].data;
-                chartData[chartData.length - 1] = currentMinuteCandle;
+                if(dataIndex > 0) {
+                    chartData.push(currentCandle); // Adiciona o novo candle
+                }
                 dayTradeChart.update('none');
 
                 calculateOpenPnl();
                 updatePositionUI();
 
-            }, 1000);
+                dataIndex++;
+            }, replaySpeed);
         }
 
         function setupDayTradeChart(initialData) {
@@ -307,8 +326,8 @@
                     dayTradeState.quantity += quantity;
                 } else { // SHORT
                     const remainingQty = quantity - currentQty;
-                    closePosition(price, currentQty); // Zera a posição vendida
-                    if (remainingQty > 0) { // Virou a mão para comprado
+                    closePosition(price, currentQty);
+                    if (remainingQty > 0) {
                         dayTradeState.position = 'LONG';
                         dayTradeState.avgPrice = price;
                         dayTradeState.quantity = remainingQty;
@@ -324,8 +343,8 @@
                     dayTradeState.quantity += quantity;
                 } else { // LONG
                     const remainingQty = quantity - currentQty;
-                    closePosition(price, currentQty); // Zera a posição comprada
-                    if (remainingQty > 0) { // Virou a mão para vendido
+                    closePosition(price, currentQty);
+                    if (remainingQty > 0) {
                         dayTradeState.position = 'SHORT';
                         dayTradeState.avgPrice = price;
                         dayTradeState.quantity = remainingQty;
