@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulação Day Trade</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial/dist/chartjs-chart-financial.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 48px; height: 48px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .chart-container { position: relative; height: 60vh; width: 100%; }
+        .day-trade-info-value.positive { color: #22c55e; }
+        .day-trade-info-value.negative { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white p-4 sm:p-6 md:p-8">
+
+    <!-- TELA DE CARREGAMENTO / AUTENTICAÇÃO -->
+    <div id="loadingScreen" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
+        <div class="text-center">
+            <div class="loader inline-block"></div>
+            <p class="text-gray-400 mt-4 text-lg">Conectando e carregando dados...</p>
+        </div>
+    </div>
+
+    <!-- CONTEÚDO PRINCIPAL DA APLICAÇÃO -->
+    <div id="appContainer" class="hidden">
+        <header class="max-w-7xl mx-auto text-center mb-6 relative">
+            <h1 id="mainTitle" class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">Simulação Day Trade</h1>
+            <div class="absolute top-0 left-0">
+                <a href="./index.html" class="bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold py-2 px-3 rounded-lg inline-flex items-center transition">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    Voltar para Backtest
+                </a>
+            </div>
+            <div class="absolute top-0 right-0">
+                 <p id="userEmail" class="text-xs text-gray-500 mb-1"></p>
+                <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded-lg inline-flex items-center transition">
+                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    Logout
+                </button>
+            </div>
+        </header>
+
+        <div id="dayTradePage" class="max-w-7xl mx-auto mt-8">
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <!-- Coluna do Gráfico -->
+                <div class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg">
+                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Intraday (Simulado) - <span id="dayTradeAsset"></span></h3>
+                    <div class="chart-container"><canvas id="dayTradeChart"></canvas></div>
+                </div>
+
+                <!-- Coluna da Boleta e Posição -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Boleta de Ordens -->
+                    <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 class="font-semibold text-lg mb-4 text-gray-200">Boleta de Ordens</h3>
+                        <div class="bg-gray-900/50 p-3 rounded-lg text-center mb-4">
+                            <p class="text-sm text-gray-400">Preço Atual</p>
+                            <p id="currentPriceDisplay" class="text-2xl font-bold text-yellow-400">--.--</p>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <label for="orderQuantity" class="block mb-1 text-sm font-medium text-gray-300">Quantidade</label>
+                                <input type="number" id="orderQuantity" value="1" min="1" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                            </div>
+                            <div class="flex gap-3">
+                                <button id="buyBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">COMPRAR</button>
+                                <button id="sellBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition">VENDER</button>
+                            </div>
+                            <div class="flex gap-3 pt-2">
+                                 <button id="closePositionBtn" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg transition">ZERAR</button>
+                                 <button id="reversePositionBtn" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 rounded-lg transition">REVERTER</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Posição Atual -->
+                    <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 class="font-semibold text-lg mb-4 text-gray-200">Posição Atual</h3>
+                        <div id="positionInfo" class="space-y-2 text-sm">
+                            <div class="flex justify-between items-center"><span class="text-gray-400">Posição:</span><span id="posStatus" class="font-semibold">Zerado</span></div>
+                            <div class="flex justify-between items-center"><span class="text-gray-400">Quantidade:</span><span id="posQuantity" class="font-semibold">0</span></div>
+                            <div class="flex justify-between items-center"><span class="text-gray-400">Preço Médio:</span><span id="posAvgPrice" class="font-semibold">0.00</span></div>
+                            <hr class="border-gray-700 my-2">
+                            <div class="flex justify-between items-center"><span class="text-gray-400">Resultado Aberto:</span><span id="posOpenPnl" class="font-bold text-lg day-trade-info-value">R$ 0,00</span></div>
+                            <div class="flex justify-between items-center"><span class="text-gray-400">Resultado do Dia:</span><span id="posClosedPnl" class="font-bold text-lg day-trade-info-value">R$ 0,00</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
+            authDomain: "backtest-f5072.firebaseapp.com",
+            projectId: "backtest-f5072",
+            storageBucket: "backtest-f5072.appspot.com",
+            messagingSenderId: "694914388064",
+            appId: "1:694914388064:web:e5ac46c00612142d33b305",
+            measurementId: "G-YD1CYX3455"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let dayTradeChart = null;
+        let dayTradeSimulationInterval = null;
+        let dayTradeState = {};
+        let activeAssetKey = 'wdo'; // Ativo padrão
+
+        const markets = {
+            bgi: { name: 'Boi Gordo', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
+            ccm: { name: 'Milho', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
+            sjc: { name: 'Soja', code: 'SJC', contractSize: 450, unit: 'sacas', currency: 'USD' },
+            dol: { name: 'Dólar Cheio', code: 'DOL', contractSize: 50000, unit: 'US$', currency: 'BRL' },
+            wdo: { name: 'Mini Dólar', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
+            icf: { name: 'Café Arábica', code: 'ICF', contractSize: 100, unit: 'sacas', currency: 'USD' }
+        };
+
+        const ui = {
+            loadingScreen: document.getElementById('loadingScreen'),
+            appContainer: document.getElementById('appContainer'),
+            userEmail: document.getElementById('userEmail'),
+            logoutBtn: document.getElementById('logoutBtn'),
+            mainTitle: document.getElementById('mainTitle'),
+            dayTradeAsset: document.getElementById('dayTradeAsset'),
+            dayTradeChart: document.getElementById('dayTradeChart'),
+            currentPriceDisplay: document.getElementById('currentPriceDisplay'),
+            orderQuantity: document.getElementById('orderQuantity'),
+            buyBtn: document.getElementById('buyBtn'),
+            sellBtn: document.getElementById('sellBtn'),
+            closePositionBtn: document.getElementById('closePositionBtn'),
+            reversePositionBtn: document.getElementById('reversePositionBtn'),
+            posStatus: document.getElementById('posStatus'),
+            posQuantity: document.getElementById('posQuantity'),
+            posAvgPrice: document.getElementById('posAvgPrice'),
+            posOpenPnl: document.getElementById('posOpenPnl'),
+            posClosedPnl: document.getElementById('posClosedPnl'),
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                ui.userEmail.textContent = user.email;
+                
+                // Pega o ativo da URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const assetParam = urlParams.get('asset');
+                if (markets[assetParam]) {
+                    activeAssetKey = assetParam;
+                }
+
+                // Inicia a aplicação
+                await initDayTradePage(user);
+            } else {
+                // Se não estiver logado, redireciona para a página de login
+                window.location.href = './index.html';
+            }
+        });
+
+        ui.logoutBtn.addEventListener('click', () => {
+            if (dayTradeSimulationInterval) clearInterval(dayTradeSimulationInterval);
+            signOut(auth);
+        });
+
+        async function initDayTradePage(user) {
+            const market = markets[activeAssetKey];
+            ui.dayTradeAsset.textContent = market.name;
+
+            const historicalData = await getHistoricalData(user, activeAssetKey);
+
+            if (!historicalData || historicalData.length === 0) {
+                alert(`Dados históricos para ${market.name} não encontrados. Por favor, carregue-os na página de backtest primeiro.`);
+                ui.loadingScreen.innerHTML = `<p class="text-red-400">Falha ao carregar dados. Redirecionando...</p>`;
+                setTimeout(() => window.location.href = './index.html', 3000);
+                return;
+            }
+
+            ui.loadingScreen.classList.add('hidden');
+            ui.appContainer.classList.remove('hidden');
+            startDayTradeSimulation(historicalData);
+        }
+
+        async function getHistoricalData(user, marketCode) {
+            if (!user) return null;
+            try {
+                const docRef = doc(db, 'users', user.uid, 'markets', marketCode);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    return data?.ohlc?.map(item => ({ ...item, date: item.date.toDate() })) || null;
+                }
+                return null;
+            } catch (error) {
+                console.error("Erro ao buscar dados históricos:", error);
+                return null;
+            }
+        }
+
+        function resetDayTradeState() {
+            const market = markets[activeAssetKey];
+            dayTradeState = {
+                position: 'FLAT', // 'LONG', 'SHORT', 'FLAT'
+                quantity: 0,
+                avgPrice: 0,
+                openPnl: 0,
+                closedPnl: 0,
+                currentPrice: 0,
+                contractSize: market.contractSize,
+                currency: market.currency,
+            };
+            updatePositionUI();
+        }
+
+        function startDayTradeSimulation(historicalData) {
+            resetDayTradeState();
+            
+            const lastCandle = historicalData[historicalData.length - 1];
+            let currentPrice = lastCandle.close;
+            let tickCount = 0;
+            const candleDuration = 60; // 60 ticks = 1 minuto
+            let currentMinuteCandle = {
+                x: new Date().getTime(), o: currentPrice, h: currentPrice, l: currentPrice, c: currentPrice
+            };
+            
+            setupDayTradeChart([currentMinuteCandle]);
+
+            dayTradeSimulationInterval = setInterval(() => {
+                const volatility = 0.0005;
+                const rand = Math.random() - 0.5;
+                currentPrice *= (1 + rand * volatility);
+                dayTradeState.currentPrice = currentPrice;
+                ui.currentPriceDisplay.textContent = currentPrice.toFixed(2);
+                
+                currentMinuteCandle.c = currentPrice;
+                if (currentPrice > currentMinuteCandle.h) currentMinuteCandle.h = currentPrice;
+                if (currentPrice < currentMinuteCandle.l) currentMinuteCandle.l = currentPrice;
+
+                tickCount++;
+
+                if (tickCount >= candleDuration) {
+                    tickCount = 0;
+                    dayTradeChart.data.datasets[0].data.push(currentMinuteCandle);
+                    currentMinuteCandle = {
+                        x: new Date().getTime(), o: currentPrice, h: currentPrice, l: currentPrice, c: currentPrice
+                    };
+                }
+
+                const chartData = dayTradeChart.data.datasets[0].data;
+                chartData[chartData.length - 1] = currentMinuteCandle;
+                dayTradeChart.update('none');
+
+                calculateOpenPnl();
+                updatePositionUI();
+
+            }, 1000);
+        }
+
+        function setupDayTradeChart(initialData) {
+            const ctx = ui.dayTradeChart.getContext('2d');
+            if (dayTradeChart) dayTradeChart.destroy();
+            
+            dayTradeChart = new Chart(ctx, {
+                type: 'candlestick',
+                data: { datasets: [{ label: 'Preço 1-Min', data: initialData }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } }, ticks: { color: '#d1d5db' } },
+                        y: { ticks: { color: '#d1d5db' } }
+                    },
+                    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }
+                }
+            });
+        }
+
+        function executeTrade(type) {
+            const quantity = parseInt(ui.orderQuantity.value);
+            const price = dayTradeState.currentPrice;
+            if (quantity <= 0 || price <= 0) return;
+
+            const currentPosition = dayTradeState.position;
+            const currentQty = dayTradeState.quantity;
+            
+            if (type === 'BUY') {
+                if (currentPosition === 'FLAT') {
+                    dayTradeState.position = 'LONG';
+                    dayTradeState.avgPrice = price;
+                    dayTradeState.quantity = quantity;
+                } else if (currentPosition === 'LONG') {
+                    dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
+                    dayTradeState.quantity += quantity;
+                } else { // SHORT
+                    const remainingQty = quantity - currentQty;
+                    closePosition(price, currentQty); // Zera a posição vendida
+                    if (remainingQty > 0) { // Virou a mão para comprado
+                        dayTradeState.position = 'LONG';
+                        dayTradeState.avgPrice = price;
+                        dayTradeState.quantity = remainingQty;
+                    }
+                }
+            } else if (type === 'SELL') {
+                 if (currentPosition === 'FLAT') {
+                    dayTradeState.position = 'SHORT';
+                    dayTradeState.avgPrice = price;
+                    dayTradeState.quantity = quantity;
+                } else if (currentPosition === 'SHORT') {
+                    dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
+                    dayTradeState.quantity += quantity;
+                } else { // LONG
+                    const remainingQty = quantity - currentQty;
+                    closePosition(price, currentQty); // Zera a posição comprada
+                    if (remainingQty > 0) { // Virou a mão para vendido
+                        dayTradeState.position = 'SHORT';
+                        dayTradeState.avgPrice = price;
+                        dayTradeState.quantity = remainingQty;
+                    }
+                }
+            }
+            updatePositionUI();
+        }
+
+        function closePosition(price, qtyToClose = dayTradeState.quantity) {
+            if (dayTradeState.position === 'FLAT' || qtyToClose <= 0) return;
+            
+            const pnl = (dayTradeState.position === 'LONG') 
+                ? (price - dayTradeState.avgPrice) * qtyToClose * dayTradeState.contractSize
+                : (dayTradeState.avgPrice - price) * qtyToClose * dayTradeState.contractSize;
+
+            dayTradeState.closedPnl += pnl;
+            dayTradeState.quantity -= qtyToClose;
+
+            if (dayTradeState.quantity <= 0) {
+                dayTradeState.position = 'FLAT';
+                dayTradeState.quantity = 0;
+                dayTradeState.avgPrice = 0;
+                dayTradeState.openPnl = 0;
+            }
+            updatePositionUI();
+        }
+        
+        function calculateOpenPnl() {
+            if (dayTradeState.position === 'FLAT') {
+                dayTradeState.openPnl = 0;
+                return;
+            }
+            const price = dayTradeState.currentPrice;
+            const pnl = (dayTradeState.position === 'LONG')
+                ? (price - dayTradeState.avgPrice) * dayTradeState.quantity * dayTradeState.contractSize
+                : (dayTradeState.avgPrice - price) * dayTradeState.quantity * dayTradeState.contractSize;
+            dayTradeState.openPnl = pnl;
+        }
+
+        function updatePositionUI() {
+            const { position, quantity, avgPrice, openPnl, closedPnl, currency } = dayTradeState;
+            ui.posStatus.textContent = position === 'LONG' ? 'Comprado' : position === 'SHORT' ? 'Vendido' : 'Zerado';
+            ui.posQuantity.textContent = quantity;
+            ui.posAvgPrice.textContent = avgPrice.toFixed(2);
+            
+            const fmtr = (v) => formatCurrency(v, currency);
+            ui.posOpenPnl.textContent = fmtr(openPnl);
+            ui.posOpenPnl.className = `font-bold text-lg day-trade-info-value ${openPnl >= 0 ? 'positive' : 'negative'}`;
+            
+            ui.posClosedPnl.textContent = fmtr(closedPnl);
+            ui.posClosedPnl.className = `font-bold text-lg day-trade-info-value ${closedPnl >= 0 ? 'positive' : 'negative'}`;
+        }
+
+        function formatCurrency(value, currency = 'BRL') { 
+            return new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'pt-BR', { style: 'currency', currency }).format(value); 
+        }
+
+        ui.buyBtn.addEventListener('click', () => executeTrade('BUY'));
+        ui.sellBtn.addEventListener('click', () => executeTrade('SELL'));
+        ui.closePositionBtn.addEventListener('click', () => closePosition(dayTradeState.currentPrice));
+        ui.reversePositionBtn.addEventListener('click', () => {
+            if (dayTradeState.position === 'FLAT') return;
+            const qtyToReverse = dayTradeState.quantity * 2;
+            const tradeType = dayTradeState.position === 'LONG' ? 'SELL' : 'BUY';
+            executeTrade(tradeType, qtyToReverse);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma de Backtest</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom/dist/chartjs-plugin-zoom.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .step-card {
+            transition: all 0.3s ease-in-out; opacity: 0.5; pointer-events: none;
+            transform: translateY(10px); display: none;
+        }
+        .step-card.active, .step-card.done { display: block; }
+        .step-card.active { opacity: 1; pointer-events: auto; transform: translateY(0); }
+        .step-card.done { opacity: 0.7; transform: translateY(0); border-left-color: #22c55e; }
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 24px; height: 24px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .chart-container { position: relative; height: 500px; width: 100%; }
+        .data-table-container { max-height: 500px; overflow-y: auto; }
+        [contenteditable]:focus { outline: 2px solid #3b82f6; background-color: #374151; }
+        .page-tab { transition: all 0.2s ease-in-out; }
+        .page-tab.active { background-color: #4f46e5; color: white; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white p-4 sm:p-6 md:p-8">
+
+    <!-- TELA DE LOGIN -->
+    <div id="authScreen" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
+        <div class="w-full max-w-md space-y-8">
+            <div>
+                <h1 class="text-center text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">Plataforma de Backtest</h1>
+                <p class="mt-2 text-center text-sm text-gray-400">Faça login para continuar</p>
+            </div>
+            <div class="bg-gray-800 p-8 rounded-lg shadow-lg space-y-6">
+                 <div>
+                    <label for="email" class="sr-only">Email</label>
+                    <input id="email" name="email" type="email" autocomplete="email" required class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" placeholder="Endereço de e-mail">
+                </div>
+                <div>
+                    <label for="password" class="sr-only">Senha</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" placeholder="Senha">
+                </div>
+                 <div id="authError" class="text-red-400 text-sm text-center hidden p-2 bg-red-900/50 rounded-lg"></div>
+                <button id="loginBtn" class="w-full justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-blue-500">
+                    Login
+                </button>
+            </div>
+             <div id="authSpinner" class="hidden text-center">
+                <div class="loader inline-block"></div>
+                <p class="text-gray-400 mt-2">Verificando...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- CONTEÚDO PRINCIPAL DA APLICAÇÃO -->
+    <div id="appContainer" class="hidden">
+        <div class="max-w-7xl mx-auto">
+            <header class="text-center mb-6 relative">
+                <h1 id="mainTitle" class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">Backtest de Média Móvel</h1>
+                <p class="text-gray-400 mt-2">Plataforma de backtest multi-mercado com persistência de dados na nuvem.</p>
+                <div class="absolute top-0 right-0">
+                     <p id="userEmail" class="text-xs text-gray-500 mb-1"></p>
+                    <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded-lg inline-flex items-center transition">
+                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        Logout
+                    </button>
+                </div>
+            </header>
+            
+            <nav class="mb-8 p-2 bg-gray-800 rounded-lg shadow-md">
+                <div id="pageTabs" class="flex flex-wrap items-center justify-center gap-2">
+                     <div class="loader"></div>
+                </div>
+            </nav>
+
+            <!-- CONTEÚDO DE BACKTEST -->
+            <div id="backtestContent">
+                <div class="relative">
+                    <button id="resetPageBtn" title="Limpar todos os dados e recomeçar a análise para este ativo." class="absolute top-0 right-0 z-10 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg inline-flex items-center transition">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        <span>Recomeçar Análise</span>
+                    </button>
+                    <div id="mainContent" class="space-y-8">
+                        <!-- Etapa 1: Carregar Arquivo -->
+                        <div id="step1" class="step-card bg-gray-800 p-6 rounded-lg border-l-4 border-blue-500 shadow-lg">
+                            <div class="flex items-center mb-4">
+                                <div class="bg-blue-500 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold">1</div>
+                                <h2 class="text-2xl font-semibold ml-4">Fonte de Dados</h2>
+                            </div>
+                            <p class="text-gray-400 mb-4">Parece que você ainda não tem dados para este ativo. Carregue o <strong>histórico completo</strong> uma única vez para salvá-lo permanentemente na sua conta.</p>
+                            <div class="flex flex-col sm:flex-row gap-4">
+                                <div id="uploadArea" class="flex-1">
+                                    <input type="file" id="csvFile" accept=".csv" class="hidden">
+                                    <label for="csvFile" class="w-full h-full cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg inline-flex items-center justify-center transition">
+                                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                                        <span>Carregar Histórico Completo (CSV)</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="fileStatus" class="mt-4 text-gray-300 hidden"></div>
+                            <div id="step1Error" class="mt-4 text-red-400 hidden p-3 bg-red-900/50 rounded-lg"></div>
+                        </div>
+
+                        <!-- Etapa 1.5: Confirmar Separador -->
+                        <div id="separatorStep" class="step-card bg-gray-800 p-6 rounded-lg border-l-4 border-gray-600 shadow-lg">
+                            <div class="flex items-center mb-4">
+                                <div class="bg-gray-600 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold">1.5</div>
+                                <h2 class="text-2xl font-semibold ml-4">Confirmar Separador de Coluna</h2>
+                            </div>
+                            <p class="text-gray-400 mb-4">Escolha o separador para que os dados na tabela abaixo fiquem corretamente divididos em colunas.</p>
+                            <div id="delimiterOptions" class="flex flex-wrap gap-x-6 gap-y-2 items-center mb-4">
+                                <label class="flex items-center space-x-2 text-white cursor-pointer">
+                                    <input type="radio" name="delimiter" value="," class="form-radio bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+                                    <span>Vírgula ( , )</span>
+                                </label>
+                                <label class="flex items-center space-x-2 text-white cursor-pointer">
+                                    <input type="radio" name="delimiter" value=";" class="form-radio bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+                                    <span>Ponto e vírgula ( ; )</span>
+                                </label>
+                            </div>
+                            <p class="text-gray-400 mb-2 font-semibold">Pré-visualização dos Dados:</p>
+                            <div id="dataParsePreview" class="bg-gray-900 p-2 rounded-md overflow-x-auto"></div>
+                            <button id="confirmSeparatorBtn" class="mt-6 w-full md:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg transition">
+                                Confirmar Separador e Continuar
+                            </button>
+                        </div>
+
+                        <!-- Etapa 2: Mapear Colunas -->
+                        <div id="step2" class="step-card bg-gray-800 p-6 rounded-lg border-l-4 border-gray-600 shadow-lg">
+                            <div class="flex items-center mb-4">
+                                <div class="bg-gray-600 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold">2</div>
+                                <h2 class="text-2xl font-semibold ml-4">Mapear Colunas</h2>
+                            </div>
+                            <p class="text-gray-400 mb-6">Associe as colunas detetadas com os campos necessários: <strong>Data, Abertura, Máxima, Mínima, e Fechamento</strong>.</p>
+                            <div id="mappingUI" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+                            <div id="step2Error" class="mt-4 text-red-400 hidden p-3 bg-red-900/50 rounded-lg"></div>
+                            <button id="confirmMappingBtn" class="mt-6 w-full md:w-auto bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg transition">
+                                Confirmar e Salvar Dados na Nuvem
+                            </button>
+                        </div>
+
+                        <!-- Etapa 3: Planilha de Dados e Execução -->
+                        <div id="step3" class="step-card bg-gray-800 p-6 rounded-lg border-l-4 border-gray-600 shadow-lg">
+                            <div class="flex items-center mb-4">
+                                <div class="bg-gray-600 text-white rounded-full h-8 w-8 flex items-center justify-center font-bold">3</div>
+                                <h2 class="text-2xl font-semibold ml-4">Configuração e Execução</h2>
+                            </div>
+                            
+                            <div class="bg-gray-900/50 p-4 rounded-lg mb-6 border border-gray-700">
+                                <h3 class="font-semibold text-lg mb-4 text-gray-200">Período do Backtest</h3>
+                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                     <div>
+                                        <label for="startDate" class="block mb-2 text-sm font-medium text-gray-300">Data de Início</label>
+                                        <input type="date" id="startDate" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                                    </div>
+                                    <div>
+                                        <label for="endDate" class="block mb-2 text-sm font-medium text-gray-300">Data de Fim</label>
+                                        <input type="date" id="endDate" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label for="smaPeriod" class="block mb-2 text-sm font-medium text-gray-300">Período da Média Móvel</label>
+                                    <input type="number" id="smaPeriod" value="21" min="2" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
+                                </div>
+                                <div>
+                                    <label for="contractSize" id="contractSizeLabel" class="block mb-2 text-sm font-medium text-gray-300">Tamanho do Contrato</label>
+                                    <input type="number" id="contractSize" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" readonly>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-wrap gap-4 mb-4">
+                                <button id="addNewRowBtn" title="Adicionar uma nova linha de dados no final da tabela (será salva automaticamente)" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg inline-flex items-center transition">
+                                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                    Adicionar Nova Linha
+                                </button>
+                            </div>
+                            <div id="statusMessage" class="mb-4"></div>
+                            <h3 class="font-semibold text-lg mb-2 text-gray-300">Histórico de Dados Salvo (Editável)</h3>
+                            <div id="dataTableSpinner" class="text-center p-4 hidden"><div class="loader inline-block"></div> Carregando dados...</div>
+                            <div class="data-table-container rounded-lg border border-gray-700">
+                                <table id="dataPreview" class="min-w-full text-sm text-left text-gray-300 bg-gray-800"></table>
+                            </div>
+                            <button id="runBacktestBtn" class="mt-8 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-lg transition text-lg">
+                                Rodar Backtest no Período Selecionado
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="analysisContent">
+                    <!-- Seção de Resultados -->
+                    <div id="resultsSection" class="hidden mt-12">
+                        <h2 id="resultsTitle" class="text-3xl font-bold text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">Resultados do Backtest</h2>
+                        <div class="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg mb-8">
+                            <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Interativo de Preços e Sinais</h3>
+                            <div class="chart-container"><canvas id="priceChart"></canvas></div>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                            <div id="statsSection" class="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg">
+                                <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Estatísticas Principais</h3>
+                                <div id="statsContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+                            </div>
+                            <div class="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-lg">
+                                <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Curva de Património</h3>
+                                <div class="chart-container" style="height: 400px"><canvas id="equityChart"></canvas></div>
+                            </div>
+                        </div>
+                        <!-- Botão de Otimização -->
+                        <div id="optimizerContainer" class="text-center mt-8 hidden">
+                            <button id="optimizeSmaBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg inline-flex items-center transition text-base">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100 4m0-4a2 2 0 110 4m0-4v2m0 4v2m8-12a2 2 0 100 4m0-4a2 2 0 110 4m0 0v2m0 4v2M4 8a2 2 0 100 4m0-4a2 2 0 110 4m16-4a2 2 0 100 4m0-4a2 2 0 110 4M4 16a2 2 0 100 4m0-4a2 2 0 110 4m16-4a2 2 0 100 4m0-4a2 2 0 110 4"></path></svg>
+                                <span>Otimizar Melhor Média (2-50)</span>
+                            </button>
+                             <div id="optimizerSpinner" class="hidden text-center mt-4">
+                                <div class="loader inline-block"></div>
+                                <p class="text-gray-400 mt-2">Otimizando... Isso pode levar alguns segundos.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Seção de Resultados da Otimização -->
+                    <div id="optimizationResultsSection" class="hidden mt-12">
+                         <h2 class="text-3xl font-bold text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">Resultados da Otimização</h2>
+                         <div id="bestResultDisplay" class="bg-gray-800 border-2 border-green-500 p-6 rounded-lg shadow-lg mb-8 text-center max-w-2xl mx-auto"></div>
+                         <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Desempenho por Período</h3>
+                         <div class="data-table-container rounded-lg border border-gray-700">
+                            <table id="optimizationResultTable" class="min-w-full text-sm text-left text-gray-300 bg-gray-800"></table>
+                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PERSONALIZADO -->
+    <div id="customModal" class="fixed inset-0 bg-black bg-opacity-70 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md border border-gray-700">
+            <h3 id="modalTitle" class="text-xl font-bold mb-4 text-white"></h3>
+            <p id="modalMessage" class="text-gray-300 mb-6"></p>
+            <div id="modalActions" class="flex justify-end gap-4"></div>
+        </div>
+    </div>
+    
+    <script type="module">
+        // Importações do Firebase SDK v9 (Modular)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, deleteDoc, Timestamp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js";
+
+        // Suas credenciais do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
+            authDomain: "backtest-f5072.firebaseapp.com",
+            projectId: "backtest-f5072",
+            storageBucket: "backtest-f5072.appspot.com",
+            messagingSenderId: "694914388064",
+            appId: "1:694914388064:web:e5ac46c00612142d33b305",
+            measurementId: "G-YD1CYX3455"
+        };
+
+        // Inicialização do Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- Variáveis Globais e Mapeamentos ---
+        let appState = {};
+        let activePageKey = 'bgi';
+        let priceChart = null, equityChart = null;
+        let currentUser = null;
+        let currentFile = null;
+        
+        const markets = {
+            bgi: { name: 'Boi Gordo', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
+            ccm: { name: 'Milho', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
+            sjc: { name: 'Soja', code: 'SJC', contractSize: 450, unit: 'sacas', currency: 'USD' },
+            dol: { name: 'Dólar Cheio', code: 'DOL', contractSize: 50000, unit: 'US$', currency: 'BRL' },
+            wdo: { name: 'Mini Dólar', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
+            icf: { name: 'Café Arábica', code: 'ICF', contractSize: 100, unit: 'sacas', currency: 'USD' }
+        };
+
+        const ui = {
+            authScreen: document.getElementById('authScreen'),
+            appContainer: document.getElementById('appContainer'),
+            emailInput: document.getElementById('email'),
+            passwordInput: document.getElementById('password'),
+            loginBtn: document.getElementById('loginBtn'),
+            logoutBtn: document.getElementById('logoutBtn'),
+            authError: document.getElementById('authError'),
+            authSpinner: document.getElementById('authSpinner'),
+            userEmail: document.getElementById('userEmail'),
+            mainTitle: document.getElementById('mainTitle'),
+            pageTabs: document.getElementById('pageTabs'),
+            resetPageBtn: document.getElementById('resetPageBtn'),
+            backtestContent: document.getElementById('backtestContent'),
+            mainContent: document.getElementById('mainContent'),
+            analysisContent: document.getElementById('analysisContent'),
+            step1: document.getElementById('step1'), 
+            step2: document.getElementById('step2'), 
+            step3: document.getElementById('step3'),
+            separatorStep: document.getElementById('separatorStep'), 
+            csvFileInput: document.getElementById('csvFile'), 
+            fileStatus: document.getElementById('fileStatus'), 
+            step1Error: document.getElementById('step1Error'),
+            delimiterOptions: document.getElementById('delimiterOptions'), 
+            dataParsePreview: document.getElementById('dataParsePreview'), 
+            confirmSeparatorBtn: document.getElementById('confirmSeparatorBtn'),
+            mappingUI: document.getElementById('mappingUI'), 
+            confirmMappingBtn: document.getElementById('confirmMappingBtn'), 
+            step2Error: document.getElementById('step2Error'),
+            startDateInput: document.getElementById('startDate'),
+            endDateInput: document.getElementById('endDate'),
+            contractSizeInput: document.getElementById('contractSize'),
+            contractSizeLabel: document.getElementById('contractSizeLabel'),
+            smaPeriodInput: document.getElementById('smaPeriod'),
+            addNewRowBtn: document.getElementById('addNewRowBtn'),
+            statusMessage: document.getElementById('statusMessage'),
+            dataPreview: document.getElementById('dataPreview'),
+            dataTableSpinner: document.getElementById('dataTableSpinner'),
+            runBacktestBtn: document.getElementById('runBacktestBtn'),
+            resultsSection: document.getElementById('resultsSection'),
+            statsContainer: document.getElementById('statsContainer'),
+            customModal: document.getElementById('customModal'),
+            modalTitle: document.getElementById('modalTitle'),
+            modalMessage: document.getElementById('modalMessage'),
+            modalActions: document.getElementById('modalActions'),
+            optimizerContainer: document.getElementById('optimizerContainer'),
+            optimizeSmaBtn: document.getElementById('optimizeSmaBtn'),
+            optimizerSpinner: document.getElementById('optimizerSpinner'),
+            optimizationResultsSection: document.getElementById('optimizationResultsSection'),
+            bestResultDisplay: document.getElementById('bestResultDisplay'),
+            optimizationResultTable: document.getElementById('optimizationResultTable'),
+        };
+
+        // --- LÓGICA DE AUTENTICAÇÃO ---
+        const showAuthError = (message) => { ui.authError.textContent = message; ui.authError.classList.remove('hidden'); };
+        const hideAuthError = () => ui.authError.classList.add('hidden');
+        const showSpinner = (isAuth) => {
+            const spinner = isAuth ? ui.authSpinner : ui.dataTableSpinner;
+            spinner.classList.remove('hidden');
+            if (isAuth) { ui.loginBtn.disabled = true; }
+        };
+        const hideSpinner = (isAuth) => {
+            const spinner = isAuth ? ui.authSpinner : ui.dataTableSpinner;
+            spinner.classList.add('hidden');
+            if (isAuth) { ui.loginBtn.disabled = false; }
+        };
+
+        ui.loginBtn.addEventListener('click', async () => {
+            hideAuthError();
+            showSpinner(true);
+            try {
+                await signInWithEmailAndPassword(auth, ui.emailInput.value, ui.passwordInput.value);
+            } catch (error) {
+                showAuthError("E-mail ou senha inválidos.");
+            } finally {
+                hideSpinner(true);
+            }
+        });
+
+        ui.logoutBtn.addEventListener('click', () => signOut(auth));
+
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                currentUser = user;
+                ui.userEmail.textContent = user.email;
+                ui.authScreen.classList.add('hidden');
+                ui.appContainer.classList.remove('hidden');
+                initApp();
+            } else {
+                currentUser = null;
+                ui.authScreen.classList.remove('hidden');
+                ui.appContainer.classList.add('hidden');
+                appState = {};
+                activePageKey = 'bgi';
+            }
+        });
+
+        // --- LÓGICA DO FIRESTORE ---
+        const getHistoricalData = async (marketCode) => {
+            if (!currentUser) return null;
+            try {
+                const docRef = doc(db, 'users', currentUser.uid, 'markets', marketCode);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    return data?.ohlc?.map(item => ({ ...item, date: item.date.toDate() })) || null;
+                }
+                return null;
+            } catch (error) {
+                console.error("Erro ao buscar dados históricos:", error);
+                showStatusMessage("Erro ao buscar dados da nuvem.", "error");
+                return null;
+            }
+        };
+        const saveHistoricalData = async (marketCode, data) => {
+            if (!currentUser) return;
+            const docRef = doc(db, 'users', currentUser.uid, 'markets', marketCode);
+            const dataToSave = data.map(item => ({ ...item, date: Timestamp.fromDate(new Date(item.date)) }));
+            await setDoc(docRef, { ohlc: dataToSave });
+        };
+        const deleteHistoricalData = async (marketCode) => {
+            if (!currentUser) return;
+            await deleteDoc(doc(db, 'users', currentUser.uid, 'markets', marketCode));
+        };
+
+        // --- LÓGICA PRINCIPAL DA APLICAÇÃO ---
+        function getInitialPageState() {
+            return { step: 1, fileContentChunk: '', headers: [], rawData: [], mappedData: [], hasDataInCloud: false };
+        }
+
+        function createPageTabs() {
+            ui.pageTabs.innerHTML = '';
+            // Adiciona abas de mercado
+            Object.keys(markets).forEach(key => {
+                const market = markets[key];
+                const tab = document.createElement('button');
+                tab.id = `tab-${key}`;
+                tab.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600';
+                tab.textContent = market.name;
+                tab.addEventListener('click', () => switchPage(key));
+                ui.pageTabs.appendChild(tab);
+            });
+            // Adiciona link para Day Trade
+            const dayTradeLink = document.createElement('a');
+            dayTradeLink.href = `./daytrade.html?asset=${activePageKey}`;
+            dayTradeLink.id = 'dayTradeLink';
+            dayTradeLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-indigo-500';
+            dayTradeLink.textContent = 'Day Trade (Simulação)';
+            ui.pageTabs.appendChild(dayTradeLink);
+        }
+
+        async function switchPage(pageKey) {
+            activePageKey = pageKey;
+            document.querySelectorAll('.page-tab').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(`tab-${pageKey}`).classList.add('active');
+            
+            // Atualiza o link da página de day trade para o ativo atual
+            const dayTradeLink = document.getElementById('dayTradeLink');
+            if(dayTradeLink) dayTradeLink.href = `./daytrade.html?asset=${pageKey}`;
+
+            const market = markets[pageKey];
+            ui.mainTitle.textContent = `Backtest de Média Móvel - ${market.name}`;
+            ui.contractSizeInput.value = market.contractSize;
+            ui.contractSizeLabel.textContent = `Tamanho do Contrato (${market.unit})`;
+            
+            ui.resultsSection.classList.add('hidden');
+            ui.optimizerContainer.classList.add('hidden');
+            ui.optimizationResultsSection.classList.add('hidden');
+            
+            if (!appState[pageKey]) appState[pageKey] = getInitialPageState();
+            if (appState[pageKey].hasDataInCloud) {
+                renderCurrentPage();
+                return;
+            }
+
+            showSpinner(false);
+            try {
+                const dataFromCloud = await getHistoricalData(pageKey);
+                if (dataFromCloud && dataFromCloud.length > 0) {
+                    appState[pageKey] = { ...getInitialPageState(), mappedData: dataFromCloud, hasDataInCloud: true, step: 3 };
+                } else {
+                    appState[pageKey] = getInitialPageState();
+                }
+            } catch (error) {
+                console.error("Falha ao carregar dados, exibindo tela de upload:", error);
+                appState[pageKey] = getInitialPageState();
+            } finally {
+                hideSpinner(false);
+                renderCurrentPage();
+            }
+        }
+
+        function renderCurrentPage() {
+            const state = appState[activePageKey];
+            if (!state) return;
+
+            [ui.step1, ui.separatorStep, ui.step2, ui.step3].forEach(s => s.style.display = 'none');
+            ui.resultsSection.classList.add('hidden');
+            ui.optimizationResultsSection.classList.add('hidden');
+            ui.optimizerContainer.classList.add('hidden');
+
+            const stepMap = { 1: ui.step1, 1.5: ui.separatorStep, 2: ui.step2, 3: ui.step3 };
+            Object.values(stepMap).forEach(el => el.classList.remove('active', 'done'));
+            
+            let currentStepValue = state.step;
+            let stepsOrder = [1, 1.5, 2];
+            for(const step of stepsOrder){
+                if(step < currentStepValue && stepMap[step]){
+                    stepMap[step].style.display = 'block';
+                    stepMap[step].classList.add('done');
+                }
+            }
+
+            if (stepMap[currentStepValue]) {
+                stepMap[currentStepValue].style.display = 'block';
+                stepMap[currentStepValue].classList.add('active');
+            }
+
+            if (state.step === 3 && state.mappedData.length > 0) {
+                renderEditableTable();
+                setInitialDateRange();
+            }
+        }
+
+        ui.resetPageBtn.addEventListener('click', () => {
+             showModal('Confirmar Recomeço', `Tem certeza de que deseja apagar todos os dados de <strong>${markets[activePageKey].name}</strong> da sua conta? Esta ação não pode ser desfeita.`,
+                [{ text: 'Cancelar', class: 'bg-gray-600 hover:bg-gray-500', callback: hideModal },
+                 { text: 'Confirmar e Apagar', class: 'bg-red-600 hover:bg-red-700', callback: async () => {
+                        await deleteHistoricalData(activePageKey);
+                        appState[activePageKey] = getInitialPageState();
+                        if (priceChart) priceChart.destroy();
+                        if (equityChart) equityChart.destroy();
+                        priceChart = equityChart = null;
+                        renderCurrentPage();
+                        hideModal();
+                    }}]);
+        });
+
+        ui.csvFileInput.addEventListener('change', (event) => {
+            currentFile = event.target.files[0];
+            if (!currentFile) return;
+            showStatus(`Arquivo "${currentFile.name}" carregado.`, false);
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                appState[activePageKey].fileContentChunk = e.target.result.split(/[\r\n]+/).slice(0, 10).join('\n');
+                autoDetectDelimiterAndSetupPreview();
+                appState[activePageKey].step = 1.5;
+                renderCurrentPage();
+            };
+            reader.readAsText(currentFile, 'UTF-8');
+        });
+        
+        ui.confirmMappingBtn.addEventListener('click', async () => {
+            const mapping = {}, requiredFields = ['date', 'open', 'high', 'low', 'close'];
+            ui.mappingUI.querySelectorAll('select').forEach(s => { mapping[s.dataset.field] = s.value; });
+            if (requiredFields.some(f => !mapping[f])) {
+                showError(ui.step2Error, `Todos os campos marcados com * são necessários.`); return;
+            }
+            
+            try {
+                const mappedData = appState[activePageKey].rawData.map(row => {
+                    const date = parseDate(row[mapping.date]);
+                    const ohlc = [row[mapping.open], row[mapping.high], row[mapping.low], row[mapping.close]].map(v => parseFloat(String(v || '0').replace(',', '.')));
+                    if (!date || ohlc.some(isNaN)) return null;
+                    return { date, open: ohlc[0], high: ohlc[1], low: ohlc[2], close: ohlc[3] };
+                }).filter(Boolean).sort((a, b) => a.date - b.date);
+
+                if (mappedData.length < 10) {
+                    showError(ui.step2Error, `Dados insuficientes após validação. Pelo menos 10 linhas válidas são necessárias.`); return;
+                }
+                
+                showStatusMessage('Salvando dados na nuvem...', 'info');
+                await saveHistoricalData(activePageKey, mappedData);
+                showStatusMessage('Dados salvos com sucesso!', 'success');
+
+                appState[activePageKey] = { ...appState[activePageKey], mappedData, hasDataInCloud: true, step: 3 };
+                hideError(ui.step2Error);
+                renderCurrentPage();
+            } catch(e) { showError(ui.step2Error, `Erro ao validar dados: ${e.message}.`); }
+        });
+
+        const debounce = (func, delay) => {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), delay);
+            };
+        };
+
+        const debouncedSave = debounce(async () => {
+            showStatusMessage('Salvando alterações...', 'info');
+            await updateMappedDataFromTable();
+            showStatusMessage('Alterações salvas!', 'success');
+        }, 2000);
+
+        ui.dataPreview.addEventListener('focusout', (event) => {
+            if (event.target.isContentEditable) debouncedSave();
+        });
+        
+        ui.addNewRowBtn.addEventListener('click', async () => {
+            const tbody = ui.dataPreview.querySelector('tbody');
+            if (!tbody) return;
+            const newRow = tbody.insertRow();
+            newRow.className = 'data-row hover:bg-gray-700/50';
+            const lastDataRow = appState[activePageKey].mappedData.slice(-1)[0];
+            const newDate = lastDataRow ? new Date(lastDataRow.date) : new Date();
+            if(lastDataRow) newDate.setDate(newDate.getDate() + 1);
+
+            newRow.innerHTML = `
+                <td class="px-6 py-2 border-b border-gray-700" contenteditable="true" data-field="date">${newDate.toISOString().split('T')[0]}</td>
+                <td class="px-6 py-2 border-b border-gray-700" contenteditable="true" data-field="open">0.00</td>
+                <td class="px-6 py-2 border-b border-gray-700" contenteditable="true" data-field="high">0.00</td>
+                <td class="px-6 py-2 border-b border-gray-700" contenteditable="true" data-field="low">0.00</td>
+                <td class="px-6 py-2 border-b border-gray-700" contenteditable="true" data-field="close">0.00</td>`;
+            
+            await updateMappedDataFromTable();
+            newRow.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            newRow.cells[1].focus();
+        });
+
+        async function updateMappedDataFromTable() {
+            const newMappedData = Array.from(ui.dataPreview.querySelectorAll('tbody tr')).map(row => {
+                const cells = row.querySelectorAll('td');
+                const date = parseDate(cells[0].textContent.trim());
+                const ohlc = Array.from(cells).slice(1).map(c => parseFloat(c.textContent.trim().replace(',', '.')));
+                if (!date || ohlc.some(isNaN)) return null;
+                return { date, open: ohlc[0], high: ohlc[1], low: ohlc[2], close: ohlc[3] };
+            }).filter(Boolean);
+            
+            const sortedData = newMappedData.sort((a, b) => a.date - b.date);
+            appState[activePageKey].mappedData = sortedData;
+            await saveHistoricalData(activePageKey, sortedData);
+            setInitialDateRange(); 
+        }
+
+        function initApp() {
+            createPageTabs();
+            switchPage(activePageKey); 
+        }
+        
+        function showModal(title, message, buttons) {
+            ui.modalTitle.innerHTML = title;
+            ui.modalMessage.innerHTML = message;
+            ui.modalActions.innerHTML = ''; 
+            buttons.forEach(btnInfo => {
+                const button = document.createElement('button');
+                button.textContent = btnInfo.text;
+                button.className = `font-bold py-2 px-4 rounded-lg transition ${btnInfo.class}`;
+                button.onclick = btnInfo.callback;
+                ui.modalActions.appendChild(button);
+            });
+            ui.customModal.classList.remove('hidden');
+            ui.customModal.classList.add('flex');
+        }
+
+        function hideModal() { ui.customModal.classList.add('hidden'); }
+        
+        ui.confirmSeparatorBtn.addEventListener('click', () => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                Papa.parse(e.target.result, {
+                    header: true, skipEmptyLines: true, 
+                    delimiter: document.querySelector('input[name="delimiter"]:checked').value,
+                    complete: (results) => {
+                        appState[activePageKey].headers = results.meta.fields; 
+                        appState[activePageKey].rawData = results.data;
+                        setupColumnMapping();
+                        appState[activePageKey].step = 2;
+                        renderCurrentPage();
+                    }
+                });
+            };
+            reader.readAsText(currentFile, 'UTF-8');
+        });
+
+        function autoDetectDelimiterAndSetupPreview() {
+            const content = appState[activePageKey].fileContentChunk;
+            const commaCols = (Papa.parse(content, { delimiter: ',' }).data[0] || []).length;
+            const semicolonCols = (Papa.parse(content, { delimiter: ';' }).data[0] || []).length;
+            document.querySelector(`input[name="delimiter"][value="${semicolonCols > commaCols ? ';' : ','}"]`).checked = true;
+            updateDataParsePreview();
+        }
+
+        ui.delimiterOptions.addEventListener('change', updateDataParsePreview);
+
+        function updateDataParsePreview() {
+            const parsed = Papa.parse(appState[activePageKey].fileContentChunk, { 
+                delimiter: document.querySelector('input[name="delimiter"]:checked').value, header: true 
+            });
+            if (!parsed.data || !parsed.meta.fields || parsed.meta.fields.length <= 1) {
+                ui.dataParsePreview.innerHTML = `<p class="text-red-400 p-2">Não foi possível dividir colunas. Tente o outro separador.</p>`;
+                return;
+            }
+            let tableHTML = `<table class="w-full text-xs text-left text-gray-400"><thead class="text-gray-300"><tr class="bg-gray-700">`;
+            parsed.meta.fields.forEach(h => { tableHTML += `<th class="p-2 font-semibold">${h}</th>`; });
+            tableHTML += `</tr></thead><tbody>`;
+            parsed.data.slice(0, 4).forEach(row => {
+                tableHTML += `<tr class="border-t border-gray-800">`;
+                parsed.meta.fields.forEach(h => { tableHTML += `<td class="p-2">${row[h] || ''}</td>`; });
+                tableHTML += `</tr>`;
+            });
+            ui.dataParsePreview.innerHTML = tableHTML + '</tbody></table>';
+        }
+
+        function setupColumnMapping() {
+            const headers = appState[activePageKey].headers;
+            const allFields = { date: 'Data*', open: 'Abertura*', high: 'Máxima*', low: 'Mínima*', close: 'Fechamento*' };
+            ui.mappingUI.innerHTML = '';
+            Object.keys(allFields).forEach(key => {
+                const label = allFields[key];
+                const suggestedHeader = findSuggestedHeader(key, headers);
+                let selectHTML = `<div class="flex flex-col"><label class="block mb-2 text-sm font-medium">${label}</label><select data-field="${key}" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg block w-full p-2.5"><option value="">Selecione</option>`;
+                headers.forEach(h => { selectHTML += `<option value="${h}" ${h === suggestedHeader ? 'selected' : ''}>${h}</option>`; });
+                ui.mappingUI.innerHTML += selectHTML + `</select></div>`;
+            });
+        }
+        
+        function setInitialDateRange() {
+            const data = appState[activePageKey].mappedData;
+            if (data && data.length > 0) {
+                ui.startDateInput.value = data[0].date.toISOString().split('T')[0];
+                ui.endDateInput.value = data[data.length - 1].date.toISOString().split('T')[0];
+            }
+        }
+
+        function renderEditableTable() {
+            const mappedData = appState[activePageKey].mappedData;
+            let tableHTML = `<thead class="text-xs text-gray-200 uppercase bg-gray-600 sticky top-0"><tr>
+                <th class="px-6 py-3">Data</th><th class="px-6 py-3">Abertura</th>
+                <th class="px-6 py-3">Máxima</th><th class="px-6 py-3">Mínima</th>
+                <th class="px-6 py-3">Fechamento</th></tr></thead><tbody>`;
+            
+            mappedData.forEach(row => {
+                tableHTML += `<tr class="data-row hover:bg-gray-700/50">
+                    <td class="px-6 py-2 border-b border-gray-700" contenteditable="true">${row.date.toISOString().split('T')[0]}</td>
+                    <td class="px-6 py-2 border-b border-gray-700" contenteditable="true">${row.open.toFixed(2)}</td>
+                    <td class="px-6 py-2 border-b border-gray-700" contenteditable="true">${row.high.toFixed(2)}</td>
+                    <td class="px-6 py-2 border-b border-gray-700" contenteditable="true">${row.low.toFixed(2)}</td>
+                    <td class="px-6 py-2 border-b border-gray-700" contenteditable="true">${row.close.toFixed(2)}</td>
+                </tr>`;
+            });
+            ui.dataPreview.innerHTML = tableHTML + '</tbody>';
+        }
+
+        function formatCurrency(value, currency = 'BRL') { 
+            return new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'pt-BR', { style: 'currency', currency }).format(value); 
+        }
+
+        ui.runBacktestBtn.addEventListener('click', () => {
+            ui.optimizationResultsSection.classList.add('hidden'); // Esconde resultados antigos
+            ui.optimizerContainer.classList.add('hidden');
+
+            const startDate = parseDate(ui.startDateInput.value);
+            const endDate = parseDate(ui.endDateInput.value);
+            if (!startDate || !endDate || startDate >= endDate) {
+                showStatusMessage('Por favor, selecione um período válido.', 'error'); return;
+            }
+            
+            const smaPeriod = parseInt(ui.smaPeriodInput.value);
+            const backtestData = appState[activePageKey].mappedData.filter(d => d.date >= startDate && d.date <= endDate);
+
+            if (backtestData.length < smaPeriod) {
+                showStatusMessage(`Dados insuficientes para a média de ${smaPeriod} dias no período selecionado.`, 'error'); return;
+            }
+
+            const dataWithSma = calculateSMA(backtestData, smaPeriod);
+            const result = generateSignals(dataWithSma, parseFloat(ui.contractSizeInput.value));
+            
+            displayResults(calculateStats(result.trades), dataWithSma, result.trades, markets[activePageKey]);
+            ui.resultsSection.classList.remove('hidden');
+            ui.optimizerContainer.classList.remove('hidden'); // Mostra o botão de otimização
+            ui.resultsSection.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        function findSuggestedHeader(fieldKey, headerList) {
+            const suggestions = { date: ['date', 'data', 'time'], open: ['open', 'abertura'], high: ['high', 'maxima', 'máxima'], low: ['low', 'minima', 'mínima'], close: ['close', 'last', 'fechamento'] };
+            const lowerHeaderList = headerList.map(h => String(h).toLowerCase());
+            for (const suggestion of suggestions[fieldKey]) {
+                const index = lowerHeaderList.findIndex(h => h.includes(suggestion));
+                if (index !== -1) return headerList[index];
+            }
+            return '';
+        }
+
+        function parseDate(dateString) {
+            if (!dateString) return null;
+            const d = new Date(String(dateString).trim() + "T12:00:00Z");
+            return d && !isNaN(d.getTime()) ? d : null;
+        }
+
+        function calculateSMA(data, period) { return data.map((row, i, arr) => (i < period - 1) ? { ...row, sma: null } : { ...row, sma: arr.slice(i - period + 1, i + 1).reduce((acc, curr) => acc + curr.close, 0) / period }); }
+        
+        function generateSignals(data, contractSize) {
+            const trades = [];
+            let position = 'FLAT', entryPrice = 0, cumulativeProfit = 0;
+            for (let i = 1; i < data.length; i++) {
+                const prev = data[i-1], curr = data[i];
+                if (!prev.sma || !curr.sma) continue;
+                const crossUp = prev.close < prev.sma && curr.close > curr.sma;
+                const crossDown = prev.close > prev.sma && curr.close < curr.sma;
+                if (crossUp) { 
+                    if (position === 'SHORT') {
+                        const profit = (entryPrice - curr.close) * contractSize;
+                        cumulativeProfit += profit;
+                        trades.push({ type: 'BUY', signal: 'REVERSE', date: curr.date, price: curr.close, profit, equity: cumulativeProfit });
+                    } else if (position === 'FLAT') {
+                        trades.push({ type: 'BUY', signal: 'ENTRY', date: curr.date, price: curr.close, profit: 0, equity: cumulativeProfit });
+                    }
+                    position = 'LONG'; entryPrice = curr.close;
+                } else if (crossDown) {
+                    if (position === 'LONG') {
+                        const profit = (curr.close - entryPrice) * contractSize;
+                        cumulativeProfit += profit;
+                        trades.push({ type: 'SELL', signal: 'REVERSE', date: curr.date, price: curr.close, profit, equity: cumulativeProfit });
+                    } else if (position === 'FLAT') {
+                        trades.push({ type: 'SELL', signal: 'ENTRY', date: curr.date, price: curr.close, profit: 0, equity: cumulativeProfit });
+                    }
+                    position = 'SHORT'; entryPrice = curr.close;
+                }
+            }
+            return { trades };
+        }
+
+        function calculateStats(trades) {
+            if (!trades || trades.length === 0) return { totalProfit: 0, winRate: 0, maxDrawdown: 0, totalTrades: 0, equityCurve: [], equityDates: [] };
+            const totalProfit = trades.length > 0 ? trades[trades.length - 1].equity : 0;
+            const closedTrades = trades.filter(t => t.signal === 'REVERSE');
+            const winRate = closedTrades.length > 0 ? (closedTrades.filter(r => r.profit > 0).length / closedTrades.length) * 100 : 0;
+            const equityCurve = [0, ...trades.map(t => t.equity)];
+            let peak = 0, maxDrawdown = 0;
+            equityCurve.forEach(equity => {
+                if (equity > peak) peak = equity;
+                if (peak - equity > maxDrawdown) maxDrawdown = peak - equity;
+            });
+            return { totalProfit, winRate, maxDrawdown, totalTrades: trades.length, equityCurve: trades.map(t=>t.equity), equityDates: trades.map(t=>t.date) };
+        }
+        
+        function displayResults(stats, data, trades, market) {
+            const fmtr = (v) => formatCurrency(v, market.currency);
+            ui.statsContainer.innerHTML = `<div class="bg-gray-700/50 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">Lucro/Prejuízo Total</p><p class="text-2xl font-bold ${stats.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}">${fmtr(stats.totalProfit)}</p></div><div class="bg-gray-700/50 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">Taxa de Acerto</p><p class="text-2xl font-bold text-blue-400">${stats.winRate.toFixed(2)}%</p></div><div class="bg-gray-700/50 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">Drawdown Máximo</p><p class="text-2xl font-bold text-red-400">${fmtr(stats.maxDrawdown)}</p></div><div class="bg-gray-700/50 p-4 rounded-lg text-center"><p class="text-sm text-gray-400">Total de Sinais</p><p class="text-2xl font-bold text-yellow-400">${stats.totalTrades}</p></div>`;
+            displayPriceChart(data, trades); 
+            displayEquityChart(stats.equityCurve, stats.equityDates, market.currency);
+        }
+        
+        function displayPriceChart(data, trades) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            if (priceChart) priceChart.destroy();
+            const smaPeriod = parseInt(ui.smaPeriodInput.value);
+            priceChart = new Chart(ctx, {
+                type: 'candlestick', data: {
+                    datasets: [{ label: 'Preço OHLC', data: data.map(d => ({ x: d.date.getTime(), o: d.open, h: d.high, l: d.low, c: d.close })) },
+                                { label: `SMA(${smaPeriod})`, type: 'line', data: data.filter(d => d.sma).map(d => ({ x: d.date.getTime(), y: d.sma })), borderColor: 'rgb(250, 204, 21)', borderWidth: 1.5, pointRadius: 0 },
+                                { label: 'Compra', type: 'scatter', data: trades.filter(t => t.type === 'BUY').map(t => ({x: t.date.getTime(), y: t.price})), backgroundColor: 'rgba(34, 197, 94, 1)', pointStyle: 'triangle', rotation: 0, radius: 7 },
+                                { label: 'Venda', type: 'scatter', data: trades.filter(t => t.type === 'SELL').map(t => ({x: t.date.getTime(), y: t.price})), backgroundColor: 'rgba(239, 68, 68, 1)', pointStyle: 'triangle', rotation: 180, radius: 7 }]
+                }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'month' }}}, plugins: { legend: { labels: { color: '#d1d5db' }}, zoom: { pan: { enabled: true, mode: 'x'}, zoom: { wheel: { enabled: true }, mode: 'x'}}}}
+            });
+        }
+        
+        function displayEquityChart(equityData, dates, currency) {
+            const equityCtx = document.getElementById('equityChart').getContext('2d');
+            if (equityChart) equityChart.destroy();
+            if (!dates || dates.length === 0) return;
+            equityChart = new Chart(equityCtx, { 
+                type: 'line', data: { datasets: [{ label: 'Património', data: dates.map((d, i) => ({x: d.getTime(), y: equityData[i]})), borderColor: 'rgb(34, 197, 94)', backgroundColor: 'rgba(34, 197, 94, 0.2)', fill: true, tension: 0.1 }] }, 
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'month' }}, y: { ticks: { callback: v => formatCurrency(v, currency)}}}, plugins: { legend: { display: false }}} 
+            });
+        }
+        
+        ui.optimizeSmaBtn.addEventListener('click', async () => {
+            ui.optimizeSmaBtn.disabled = true;
+            ui.optimizerSpinner.classList.remove('hidden');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            runSmaOptimization();
+            ui.optimizeSmaBtn.disabled = false;
+            ui.optimizerSpinner.classList.add('hidden');
+        });
+
+        function runSmaOptimization() {
+            const startDate = parseDate(ui.startDateInput.value);
+            const endDate = parseDate(ui.endDateInput.value);
+            const contractSize = parseFloat(ui.contractSizeInput.value);
+            const fullData = appState[activePageKey].mappedData.filter(d => d.date >= startDate && d.date <= endDate);
+            
+            const optimizationResults = [];
+            for (let period = 2; period <= 50; period++) {
+                if(fullData.length < period) continue;
+                
+                const dataWithSma = calculateSMA(fullData, period);
+                const result = generateSignals(dataWithSma, contractSize);
+                const stats = calculateStats(result.trades);
+                optimizationResults.push({ period: period, totalProfit: stats.totalProfit });
+            }
+            
+            displayOptimizationResults(optimizationResults, markets[activePageKey]);
+        }
+        
+        function displayOptimizationResults(results, market) {
+            if (results.length === 0) {
+                ui.bestResultDisplay.innerHTML = `<p class="text-yellow-400">Não foi possível rodar a otimização. Verifique o período e a quantidade de dados.</p>`;
+                ui.optimizationResultTable.innerHTML = '';
+                ui.optimizationResultsSection.classList.remove('hidden');
+                return;
+            }
+
+            const fmtr = (v) => formatCurrency(v, market.currency);
+            const bestResult = results.reduce((max, current) => current.totalProfit > max.totalProfit ? current : max, results[0]);
+
+            ui.bestResultDisplay.innerHTML = `
+                <p class="text-sm text-gray-400 uppercase tracking-wider">Melhor Resultado</p>
+                <h3 class="text-4xl font-bold text-green-400 my-2">Média de ${bestResult.period} dias</h3>
+                <p class="text-xl text-gray-300">Gerou um lucro total de <strong class="${bestResult.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}">${fmtr(bestResult.totalProfit)}</strong></p>
+            `;
+
+            let tableHTML = `<thead class="text-xs text-gray-200 uppercase bg-gray-600 sticky top-0"><tr>
+                <th class="px-6 py-3 text-center">Período (Dias)</th>
+                <th class="px-6 py-3 text-right">Lucro / Prejuízo Total</th>
+            </tr></thead><tbody>`;
+
+            results.forEach(res => {
+                const isBest = res.period === bestResult.period;
+                const profitColor = res.totalProfit >= 0 ? 'text-green-400' : 'text-red-400';
+                tableHTML += `
+                <tr class="hover:bg-gray-700/50 ${isBest ? 'bg-green-800/30 border-l-4 border-green-500 font-bold' : ''}">
+                    <td class="px-6 py-2 border-b border-gray-700 text-center">${res.period}</td>
+                    <td class="px-6 py-2 border-b border-gray-700 text-right ${profitColor}">${fmtr(res.totalProfit)}</td>
+                </tr>`;
+            });
+
+            ui.optimizationResultTable.innerHTML = tableHTML + '</tbody>';
+            ui.optimizationResultsSection.classList.remove('hidden');
+            ui.optimizationResultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+
+        function showStatus(message, isLoading) { ui.fileStatus.classList.remove('hidden'); ui.fileStatus.innerHTML = isLoading ? `<div class="flex items-center"><div class="loader mr-2"></div><p>${message}</p></div>` : `<p>${message}</p>`; }
+        function showStatusMessage(message, type = 'info') {
+            const color = type === 'error' ? 'text-red-400' : type === 'success' ? 'text-green-400' : 'text-blue-400';
+            ui.statusMessage.innerHTML = `<p class="${color}">${message}</p>`;
+            setTimeout(() => { ui.statusMessage.innerHTML = ''; }, 4000);
+        }
+        function showError(element, message) { element.textContent = message; element.classList.remove('hidden'); }
+        function hideError(element) { element.classList.add('hidden'); }
+        
+    </script>
+</body>
+</html>
