@@ -126,20 +126,22 @@
         const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
 
         const markets = {
-            bgi: { name: 'Boi Gordo', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
-            ccm: { name: 'Milho', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
-            sjc: { name: 'Soja', code: 'SJC', contractSize: 450, unit: 'sacas', currency: 'USD' },
-            dol: { name: 'Dólar Cheio', code: 'DOL', contractSize: 50000, unit: 'US$', currency: 'BRL' },
-            wdo: { name: 'Mini Dólar', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
-            icf: { name: 'Café Arábica', code: 'ICF', contractSize: 100, unit: 'sacas', currency: 'USD' }
+            bgi: { name: 'Boi Gordo (BGI)', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
+            ccm: { name: 'Milho (CCM)', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
+            wdo: { name: 'Mini Dólar (WDO)', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
+            petr4: { name: 'Petrobras (PETR4)', code: 'PETR4', contractSize: 1, unit: 'Ações', currency: 'BRL' },
+            vale3: { name: 'Vale (VALE3)', code: 'VALE3', contractSize: 1, unit: 'Ações', currency: 'BRL' }
         };
         
-        // Mapeamento para os símbolos da Alpha Vantage (Exemplos, podem precisar de ajuste)
+        // Mapeamento para os símbolos da Alpha Vantage
+        // Contratos futuros (WDO, BGI) expiram e precisam ser atualizados.
+        // Ações (PETR4, VALE3) têm tickers fixos.
         const marketSymbolMapping = {
-            wdo: 'WDOV24.SAO', // Exemplo: Contrato V de 2024
-            dol: 'DOLV24.SAO', // Exemplo: Contrato V de 2024
-            bgi: 'BGIK24.SAO', // Exemplo: Contrato K de 2024
-            // Adicione outros ativos aqui
+            wdo: 'WDOV24.SAO', // Exemplo: Contrato V de 2024 (PODE ESTAR EXPIRADO)
+            bgi: 'BGIK24.SAO', // Exemplo: Contrato K de 2024 (PODE ESTAR EXPIRADO)
+            ccm: 'CCMU24.SAO', // Exemplo: Contrato U de 2024 (PODE ESTAR EXPIRADO)
+            petr4: 'PETR4.SAO',
+            vale3: 'VALE3.SAO'
         };
 
         const ui = {
@@ -198,7 +200,7 @@
                 const intradayData = await fetchIntradayData(apiSymbol);
 
                 if (!intradayData || intradayData.length === 0) {
-                    handleError(`Não foram encontrados dados intraday para ${apiSymbol}. Verifique o símbolo ou a chave da API.`);
+                    handleError(`Não foram encontrados dados intraday para ${apiSymbol}. Verifique o símbolo ou a chave da API. Contratos futuros podem estar expirados.`);
                     return;
                 }
                 
