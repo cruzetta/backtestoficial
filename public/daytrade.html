@@ -56,10 +56,25 @@
                 <div class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg">
                     <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Intraday (1 min) - <span id="dayTradeAsset"></span></h3>
                     <div class="chart-container"><canvas id="dayTradeChart"></canvas></div>
+                     <div id="chartError" class="hidden text-center text-red-400 p-4"></div>
                 </div>
 
                 <!-- Coluna da Boleta e Posição -->
                 <div class="lg:col-span-1 space-y-6">
+                    <!-- Card de Configuração do Ativo -->
+                    <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <h3 class="font-semibold text-lg mb-4 text-gray-200">Configuração do Ativo</h3>
+                        <div>
+                            <label for="manualSymbolInput" class="block mb-1 text-sm font-medium text-gray-300">Símbolo do Ativo (Alpha Vantage)</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="manualSymbolInput" class="flex-1 bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" placeholder="Ex: BGIV25.SAO">
+                                <button id="loadSymbolBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition">Carregar</button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">Use o código do contrato vigente. Ex: PETR4.SAO, BGIV25.SAO.</p>
+                             <div id="symbolError" class="text-red-400 text-sm mt-2"></div>
+                        </div>
+                    </div>
+
                     <!-- Boleta de Ordens -->
                     <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
                         <h3 class="font-semibold text-lg mb-4 text-gray-200">Boleta de Ordens</h3>
@@ -105,7 +120,6 @@
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
 
         const firebaseConfig = {
-            // Suas credenciais do Firebase permanecem aqui
             apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
             authDomain: "backtest-f5072.firebaseapp.com",
             projectId: "backtest-f5072",
@@ -121,9 +135,8 @@
         let dayTradeChart = null;
         let dayTradeReplayInterval = null;
         let dayTradeState = {};
-        let activeAssetKey = 'petr4'; // Ativo padrão
+        let activeAssetKey = 'petr4';
 
-        // SUA CHAVE DE API DA ALPHA VANTAGE
         const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
 
         const markets = {
@@ -134,13 +147,10 @@
             vale3: { name: 'Vale (VALE3)', code: 'VALE3', contractSize: 1, unit: 'Ações', currency: 'BRL' }
         };
         
-        // Mapeamento para os símbolos da Alpha Vantage
-        // IMPORTANTE: Contratos futuros (WDO, BGI, CCM) expiram e seus códigos precisam ser
-        // atualizados periodicamente para o contrato vigente.
         const marketSymbolMapping = {
-            wdo: 'WDOU25.SAO', // Contrato U de Mini Dólar para Setembro de 2025
-            bgi: 'BGIV25.SAO', // ATUALIZADO: Contrato V de Boi Gordo para Outubro de 2025
-            ccm: 'CCMU25.SAO', // Contrato U de Milho para Setembro de 2025
+            wdo: 'WDOU25.SAO',
+            bgi: 'BGIV25.SAO',
+            ccm: 'CCMU25.SAO',
             petr4: 'PETR4.SAO',
             vale3: 'VALE3.SAO'
         };
@@ -154,6 +164,10 @@
             mainTitle: document.getElementById('mainTitle'),
             dayTradeAsset: document.getElementById('dayTradeAsset'),
             dayTradeChart: document.getElementById('dayTradeChart'),
+            chartError: document.getElementById('chartError'),
+            manualSymbolInput: document.getElementById('manualSymbolInput'),
+            loadSymbolBtn: document.getElementById('loadSymbolBtn'),
+            symbolError: document.getElementById('symbolError'),
             currentPriceDisplay: document.getElementById('currentPriceDisplay'),
             orderQuantity: document.getElementById('orderQuantity'),
             buyBtn: document.getElementById('buyBtn'),
@@ -170,14 +184,32 @@
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 ui.userEmail.textContent = user.email;
+                ui.loadingScreen.classList.add('hidden');
+                ui.appContainer.classList.remove('hidden');
+
                 const urlParams = new URLSearchParams(window.location.search);
                 const assetParam = urlParams.get('asset');
                 if (markets[assetParam]) {
                     activeAssetKey = assetParam;
                 }
-                await initDayTradePage(user);
+                
+                const market = markets[activeAssetKey];
+                ui.dayTradeAsset.textContent = market.name;
+                const initialSymbol = marketSymbolMapping[activeAssetKey];
+                ui.manualSymbolInput.value = initialSymbol;
+                
+                // Inicia a página com o símbolo padrão
+                await loadChartData(initialSymbol);
+
             } else {
                 window.location.href = './index.html';
+            }
+        });
+        
+        ui.loadSymbolBtn.addEventListener('click', () => {
+            const newSymbol = ui.manualSymbolInput.value.trim().toUpperCase();
+            if (newSymbol) {
+                loadChartData(newSymbol);
             }
         });
 
@@ -186,50 +218,44 @@
             signOut(auth);
         });
 
-        async function initDayTradePage(user) {
-            const market = markets[activeAssetKey];
-            ui.dayTradeAsset.textContent = market.name;
-
-            const apiSymbol = marketSymbolMapping[activeAssetKey];
-            if (!apiSymbol) {
-                handleError(`Ativo "${market.name}" não mapeado para a API. Adicione-o em 'marketSymbolMapping'.`);
-                return;
-            }
+        async function loadChartData(symbol) {
+            // Limpa estado anterior
+            if (dayTradeReplayInterval) clearInterval(dayTradeReplayInterval);
+            ui.chartError.classList.add('hidden');
+            ui.symbolError.textContent = '';
+            ui.loadSymbolBtn.disabled = true;
+            ui.loadSymbolBtn.textContent = '...';
 
             try {
-                ui.loadingStatus.textContent = `Buscando dados intraday para ${apiSymbol}...`;
-                const intradayData = await fetchIntradayData(apiSymbol);
-
+                const intradayData = await fetchIntradayData(symbol);
                 if (!intradayData || intradayData.length === 0) {
-                    // A própria função fetchIntradayData já lança um erro com a mensagem da API
-                    return;
+                     ui.chartError.textContent = `Não foram encontrados dados para o símbolo "${symbol}".`;
+                     ui.chartError.classList.remove('hidden');
+                     if(dayTradeChart) dayTradeChart.clear();
+                     return;
                 }
-                
-                ui.loadingScreen.classList.add('hidden');
-                ui.appContainer.classList.remove('hidden');
                 startDayTradeReplay(intradayData);
 
             } catch (error) {
-                console.error("Erro ao inicializar a página de day trade:", error);
-                handleError(error.message);
+                console.error("Erro ao carregar dados do gráfico:", error);
+                ui.symbolError.textContent = error.message;
+            } finally {
+                ui.loadSymbolBtn.disabled = false;
+                ui.loadSymbolBtn.textContent = 'Carregar';
             }
         }
 
         async function fetchIntradayData(symbol) {
             const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=1min&apikey=${ALPHA_VANTAGE_API_KEY}`;
-            
             const response = await fetch(url);
             if (!response.ok) {
-                throw new Error('Falha na comunicação com a API da Alpha Vantage.');
+                throw new Error('Falha na comunicação com a API.');
             }
-            
             const data = await response.json();
 
-            // Verificação de erro da API
             if (data['Error Message'] || !data['Time Series (1min)']) {
                 console.error("Erro da API Alpha Vantage:", data);
-                // Monta a mensagem de erro, priorizando a "Note" que geralmente explica o motivo (ex: limite de chamadas)
-                const errorMessage = data['Note'] || data['Error Message'] || 'Resposta inválida da API. Verifique o símbolo do ativo.';
+                const errorMessage = data['Note'] || data['Error Message'] || 'Resposta inválida da API.';
                 throw new Error(errorMessage);
             }
 
@@ -240,36 +266,9 @@
                 h: parseFloat(values['2. high']),
                 l: parseFloat(values['3. low']),
                 c: parseFloat(values['4. close'])
-            })).reverse(); // A API retorna do mais novo para o mais antigo, então revertemos.
+            })).reverse();
 
             return formattedData;
-        }
-
-        // ATUALIZADO: Função de erro mais detalhada
-        function handleError(message) {
-            let detailedMessage = `<p class="text-red-400 font-semibold text-lg">Erro ao carregar dados:</p><p class="text-red-400 bg-gray-800 p-2 rounded mt-2">"${message}"</p>`;
-            
-            // Adiciona uma explicação detalhada se o erro for sobre a chamada da API de futuros
-            if (message.toLowerCase().includes('invalid api call') || message.toLowerCase().includes('invalid symbol')) {
-                detailedMessage += `<div class="text-yellow-300 text-sm mt-4 text-left p-3 bg-yellow-900/20 rounded-lg border border-yellow-500">
-                    <strong class="text-base">Possível Causa:</strong> O código do contrato futuro (ex: Boi Gordo, Mini Dólar) pode ter <strong>expirado ou estar incorreto</strong>.
-                    <br>Esses códigos mudam todo mês e precisam ser atualizados.
-                    <br><br><strong class="text-base">O que fazer:</strong>
-                    <ol class="list-decimal list-inside mt-2 space-y-1">
-                        <li>Verifique o código do contrato vigente (ex: no site da B3).</li>
-                        <li>Abra o arquivo <code>daytrade.html</code>.</li>
-                        <li>Encontre a variável <code>marketSymbolMapping</code> no código.</li>
-                        <li>Atualize o código do ativo que falhou (ex: 'bgi', 'wdo').</li>
-                    </ol>
-                    <p class="mt-3"><i>Tentei atualizar o código do Boi Gordo para o contrato atual, mas pode ser necessário um ajuste manual.</i></p>
-                </div>`;
-            }
-
-            detailedMessage += `<p class="text-gray-500 text-sm mt-4">Você será redirecionado para a página principal em 15 segundos...</p>`;
-            ui.loadingStatus.innerHTML = detailedMessage;
-            
-            // Aumenta o tempo para dar tempo de ler a mensagem
-            setTimeout(() => window.location.href = './index.html', 15000); 
         }
 
         function resetDayTradeState() {
@@ -285,9 +284,9 @@
             resetDayTradeState();
             
             let dataIndex = 0;
-            const replaySpeed = 1000; // 1 segundo por candle de 1 minuto
+            const replaySpeed = 1000;
 
-            setupDayTradeChart(intradayData.slice(0, 1)); // Começa o gráfico com o primeiro candle
+            setupDayTradeChart(intradayData.slice(0, 1));
 
             if (dayTradeReplayInterval) clearInterval(dayTradeReplayInterval);
             dayTradeReplayInterval = setInterval(() => {
@@ -298,16 +297,15 @@
                 }
 
                 const currentCandle = intradayData[dataIndex];
-                const currentPrice = currentCandle.c; // Usamos o fechamento do candle como preço atual
+                const currentPrice = currentCandle.c;
                 
                 dayTradeState.currentPrice = currentPrice;
                 ui.currentPriceDisplay.textContent = currentPrice.toFixed(2);
                 
-                // Atualiza o gráfico
                 const chartData = dayTradeChart.data.datasets[0].data;
                 if(dataIndex > 0) {
                     chartData.push(currentCandle);
-                } else { // No primeiro candle, substitui o dado inicial
+                } else {
                     chartData[0] = currentCandle;
                 }
                 dayTradeChart.update('none');
@@ -321,7 +319,11 @@
 
         function setupDayTradeChart(initialData) {
             const ctx = ui.dayTradeChart.getContext('2d');
-            if (dayTradeChart) dayTradeChart.destroy();
+            if (dayTradeChart) {
+                dayTradeChart.data.datasets[0].data = initialData;
+                dayTradeChart.update();
+                return;
+            }
             
             dayTradeChart = new Chart(ctx, {
                 type: 'candlestick',
