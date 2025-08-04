@@ -120,9 +120,9 @@
         let dayTradeChart = null;
         let dayTradeReplayInterval = null;
         let dayTradeState = {};
-        let activeAssetKey = 'wdo'; // Ativo padrão
+        let activeAssetKey = 'petr4'; // Ativo padrão para evitar erros com futuros expirados
 
-        // SUA NOVA CHAVE DE API DA ALPHA VANTAGE
+        // SUA CHAVE DE API DA ALPHA VANTAGE
         const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
 
         const markets = {
@@ -134,12 +134,12 @@
         };
         
         // Mapeamento para os símbolos da Alpha Vantage
-        // Contratos futuros (WDO, BGI) expiram e precisam ser atualizados.
-        // Ações (PETR4, VALE3) têm tickers fixos.
+        // IMPORTANTE: Contratos futuros (WDO, BGI, CCM) expiram e seus códigos precisam ser
+        // atualizados periodicamente para o contrato vigente.
         const marketSymbolMapping = {
-            wdo: 'WDOV24.SAO', // Exemplo: Contrato V de 2024 (PODE ESTAR EXPIRADO)
-            bgi: 'BGIK24.SAO', // Exemplo: Contrato K de 2024 (PODE ESTAR EXPIRADO)
-            ccm: 'CCMU24.SAO', // Exemplo: Contrato U de 2024 (PODE ESTAR EXPIRADO)
+            wdo: 'WDOU25.SAO', // Contrato U de Mini Dólar para Setembro de 2025
+            bgi: 'BGIV25.SAO', // Contrato V de Boi Gordo para Outubro de 2025
+            ccm: 'CCMU25.SAO', // Contrato U de Milho para Setembro de 2025
             petr4: 'PETR4.SAO',
             vale3: 'VALE3.SAO'
         };
