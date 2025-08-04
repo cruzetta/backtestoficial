@@ -25,9 +25,9 @@
 
     <!-- TELA DE CARREGAMENTO / AUTENTICAÇÃO -->
     <div id="loadingScreen" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
-        <div class="text-center">
+        <div class="text-center max-w-2xl">
             <div class="loader inline-block"></div>
-            <p id="loadingStatus" class="text-gray-400 mt-4 text-lg">Conectando e carregando dados...</p>
+            <div id="loadingStatus" class="text-gray-400 mt-4 text-lg">Conectando e carregando dados...</div>
         </div>
     </div>
 
@@ -74,7 +74,7 @@
                             </div>
                             <div class="flex gap-3">
                                 <button id="buyBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">COMPRAR</button>
-                                <button id="sellBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition">VENDER</button>
+                                <button id="sellBtn" class="flex-1 bg-red-600 hover:red-700 text-white font-bold py-3 rounded-lg transition">VENDER</button>
                             </div>
                             <div class="flex gap-3 pt-2">
                                  <button id="closePositionBtn" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 rounded-lg transition">ZERAR</button>
@@ -105,6 +105,7 @@
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
 
         const firebaseConfig = {
+            // Suas credenciais do Firebase permanecem aqui
             apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
             authDomain: "backtest-f5072.firebaseapp.com",
             projectId: "backtest-f5072",
@@ -120,7 +121,7 @@
         let dayTradeChart = null;
         let dayTradeReplayInterval = null;
         let dayTradeState = {};
-        let activeAssetKey = 'petr4'; // Ativo padrão para evitar erros com futuros expirados
+        let activeAssetKey = 'petr4'; // Ativo padrão
 
         // SUA CHAVE DE API DA ALPHA VANTAGE
         const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
@@ -138,7 +139,7 @@
         // atualizados periodicamente para o contrato vigente.
         const marketSymbolMapping = {
             wdo: 'WDOU25.SAO', // Contrato U de Mini Dólar para Setembro de 2025
-            bgi: 'BGIV25.SAO', // Contrato V de Boi Gordo para Outubro de 2025
+            bgi: 'BGIQ25.SAO', // ATUALIZADO: Contrato Q de Boi Gordo para Agosto de 2025
             ccm: 'CCMU25.SAO', // Contrato U de Milho para Setembro de 2025
             petr4: 'PETR4.SAO',
             vale3: 'VALE3.SAO'
@@ -200,7 +201,7 @@
                 const intradayData = await fetchIntradayData(apiSymbol);
 
                 if (!intradayData || intradayData.length === 0) {
-                    handleError(`Não foram encontrados dados intraday para ${apiSymbol}. Verifique o símbolo ou a chave da API. Contratos futuros podem estar expirados.`);
+                    // A própria função fetchIntradayData já lança um erro com a mensagem da API
                     return;
                 }
                 
@@ -215,8 +216,6 @@
         }
 
         async function fetchIntradayData(symbol) {
-            // NOTA DE SEGURANÇA: Em uma aplicação real, a chave de API não deve ficar no código do frontend.
-            // Ela deve ser usada em um backend (como uma Firebase Cloud Function) para proteger sua conta.
             const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=1min&apikey=${ALPHA_VANTAGE_API_KEY}`;
             
             const response = await fetch(url);
@@ -226,9 +225,12 @@
             
             const data = await response.json();
 
+            // Verificação de erro da API
             if (data['Error Message'] || !data['Time Series (1min)']) {
                 console.error("Erro da API Alpha Vantage:", data);
-                throw new Error(data['Note'] || data['Error Message'] || 'Resposta inválida da API. Verifique o símbolo do ativo.');
+                // Monta a mensagem de erro, priorizando a "Note" que geralmente explica o motivo (ex: limite de chamadas)
+                const errorMessage = data['Note'] || data['Error Message'] || 'Resposta inválida da API. Verifique o símbolo do ativo.';
+                throw new Error(errorMessage);
             }
 
             const timeSeries = data['Time Series (1min)'];
@@ -243,9 +245,31 @@
             return formattedData;
         }
 
+        // ATUALIZADO: Função de erro mais detalhada
         function handleError(message) {
-            ui.loadingStatus.innerHTML = `<p class="text-red-400">${message}</p><p class="text-gray-500 text-sm mt-2">Você será redirecionado em 5 segundos...</p>`;
-            setTimeout(() => window.location.href = './index.html', 5000);
+            let detailedMessage = `<p class="text-red-400 font-semibold text-lg">Erro ao carregar dados:</p><p class="text-red-400 bg-gray-800 p-2 rounded mt-2">"${message}"</p>`;
+            
+            // Adiciona uma explicação detalhada se o erro for sobre a chamada da API de futuros
+            if (message.toLowerCase().includes('invalid api call') || message.toLowerCase().includes('invalid symbol')) {
+                detailedMessage += `<div class="text-yellow-300 text-sm mt-4 text-left p-3 bg-yellow-900/20 rounded-lg border border-yellow-500">
+                    <strong class="text-base">Possível Causa:</strong> O código do contrato futuro (ex: Boi Gordo, Mini Dólar) pode ter <strong>expirado ou estar incorreto</strong>.
+                    <br>Esses códigos mudam todo mês e precisam ser atualizados.
+                    <br><br><strong class="text-base">O que fazer:</strong>
+                    <ol class="list-decimal list-inside mt-2 space-y-1">
+                        <li>Verifique o código do contrato vigente (ex: no site da B3).</li>
+                        <li>Abra o arquivo <code>daytrade.html</code>.</li>
+                        <li>Encontre a variável <code>marketSymbolMapping</code> no código.</li>
+                        <li>Atualize o código do ativo que falhou (ex: 'bgi', 'wdo').</li>
+                    </ol>
+                    <p class="mt-3"><i>Tentei atualizar o código do Boi Gordo para o contrato atual, mas pode ser necessário um ajuste manual.</i></p>
+                </div>`;
+            }
+
+            detailedMessage += `<p class="text-gray-500 text-sm mt-4">Você será redirecionado para a página principal em 15 segundos...</p>`;
+            ui.loadingStatus.innerHTML = detailedMessage;
+            
+            // Aumenta o tempo para dar tempo de ler a mensagem
+            setTimeout(() => window.location.href = './index.html', 15000); 
         }
 
         function resetDayTradeState() {
@@ -265,6 +289,7 @@
 
             setupDayTradeChart(intradayData.slice(0, 1)); // Começa o gráfico com o primeiro candle
 
+            if (dayTradeReplayInterval) clearInterval(dayTradeReplayInterval);
             dayTradeReplayInterval = setInterval(() => {
                 if (dataIndex >= intradayData.length) {
                     clearInterval(dayTradeReplayInterval);
@@ -281,7 +306,9 @@
                 // Atualiza o gráfico
                 const chartData = dayTradeChart.data.datasets[0].data;
                 if(dataIndex > 0) {
-                    chartData.push(currentCandle); // Adiciona o novo candle
+                    chartData.push(currentCandle);
+                } else { // No primeiro candle, substitui o dado inicial
+                    chartData[0] = currentCandle;
                 }
                 dayTradeChart.update('none');
 
@@ -302,16 +329,16 @@
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: {
-                        x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } }, ticks: { color: '#d1d5db' } },
-                        y: { ticks: { color: '#d1d5db' } }
+                        x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } }, ticks: { color: '#d1d5db' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } },
+                        y: { ticks: { color: '#d1d5db' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }
                     },
                     plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } }
                 }
             });
         }
 
-        function executeTrade(type) {
-            const quantity = parseInt(ui.orderQuantity.value);
+        function executeTrade(type, forcedQuantity = null) {
+            const quantity = forcedQuantity || parseInt(ui.orderQuantity.value);
             const price = dayTradeState.currentPrice;
             if (quantity <= 0 || price <= 0) return;
 
@@ -327,8 +354,9 @@
                     dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
                     dayTradeState.quantity += quantity;
                 } else { // SHORT
-                    const remainingQty = quantity - currentQty;
-                    closePosition(price, currentQty);
+                    const qtyToClose = Math.min(quantity, currentQty);
+                    const remainingQty = quantity - qtyToClose;
+                    closePosition(price, qtyToClose);
                     if (remainingQty > 0) {
                         dayTradeState.position = 'LONG';
                         dayTradeState.avgPrice = price;
@@ -344,8 +372,9 @@
                     dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
                     dayTradeState.quantity += quantity;
                 } else { // LONG
-                    const remainingQty = quantity - currentQty;
-                    closePosition(price, currentQty);
+                    const qtyToClose = Math.min(quantity, currentQty);
+                    const remainingQty = quantity - qtyToClose;
+                    closePosition(price, qtyToClose);
                     if (remainingQty > 0) {
                         dayTradeState.position = 'SHORT';
                         dayTradeState.avgPrice = price;
