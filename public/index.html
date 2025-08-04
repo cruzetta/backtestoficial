@@ -176,7 +176,7 @@
                                     <input type="number" id="smaPeriod" value="21" min="2" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
                                 </div>
                                 <div>
-                                    <label for="contractSize" id="contractSizeLabel" class="block mb-2 text-sm font-medium text-gray-300">Tamanho do Contrato</label>
+                                    <label for="contractSize" id="contractSizeLabel" class="block mb-2 text-sm font-medium text-gray-300">Tamanho do Contrato / Lote</label>
                                     <input type="number" id="contractSize" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5" readonly>
                                 </div>
                             </div>
@@ -278,18 +278,17 @@
 
         // --- Variáveis Globais e Mapeamentos ---
         let appState = {};
-        let activePageKey = 'bgi';
+        let activePageKey = 'petr4'; // Ativo padrão para evitar erros
         let priceChart = null, equityChart = null;
         let currentUser = null;
         let currentFile = null;
         
         const markets = {
-            bgi: { name: 'Boi Gordo', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
-            ccm: { name: 'Milho', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
-            sjc: { name: 'Soja', code: 'SJC', contractSize: 450, unit: 'sacas', currency: 'USD' },
-            dol: { name: 'Dólar Cheio', code: 'DOL', contractSize: 50000, unit: 'US$', currency: 'BRL' },
-            wdo: { name: 'Mini Dólar', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' },
-            icf: { name: 'Café Arábica', code: 'ICF', contractSize: 100, unit: 'sacas', currency: 'USD' }
+            petr4: { name: 'Petrobras (PETR4)', code: 'PETR4', contractSize: 1, unit: 'Ações', currency: 'BRL' },
+            vale3: { name: 'Vale (VALE3)', code: 'VALE3', contractSize: 1, unit: 'Ações', currency: 'BRL' },
+            bgi: { name: 'Boi Gordo (BGI)', code: 'BGI', contractSize: 330, unit: '@', currency: 'BRL' },
+            ccm: { name: 'Milho (CCM)', code: 'CCM', contractSize: 450, unit: 'sacas', currency: 'BRL' },
+            wdo: { name: 'Mini Dólar (WDO)', code: 'WDO', contractSize: 10000, unit: 'US$', currency: 'BRL' }
         };
 
         const ui = {
@@ -385,7 +384,7 @@
                 ui.authScreen.classList.remove('hidden');
                 ui.appContainer.classList.add('hidden');
                 appState = {};
-                activePageKey = 'bgi';
+                activePageKey = 'petr4';
             }
         });
 
