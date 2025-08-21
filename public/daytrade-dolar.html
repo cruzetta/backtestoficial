@@ -192,12 +192,23 @@
         
         // --- Initialization ---
         async function initialize() {
-            // Use environment variables for Firebase config
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
             
-            if (!firebaseConfig) {
-                ui.loadingStatus.textContent = "Erro: Configuração do Firebase não encontrada.";
+            // CORREÇÃO: Adicionado um objeto de configuração reserva (fallback) para permitir
+            // a pré-visualização quando a variável de ambiente __firebase_config não estiver disponível.
+            const firebaseConfig = typeof __firebase_config !== 'undefined' 
+                ? JSON.parse(__firebase_config) 
+                : {
+                    apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
+                    authDomain: "backtest-f5072.firebaseapp.com",
+                    projectId: "backtest-f5072",
+                    storageBucket: "backtest-f5072.appspot.com",
+                    messagingSenderId: "694914388064",
+                    appId: "1:694914388064:web:e5ac46c00612142d33b305"
+                  };
+            
+            if (!firebaseConfig || !firebaseConfig.projectId) {
+                ui.loadingStatus.textContent = "Erro: Configuração do Firebase inválida ou não encontrada.";
                 return;
             }
 
@@ -205,7 +216,6 @@
             auth = getAuth(app);
             db = getFirestore(app);
             
-            // Use the required public path structure for Firestore
             const collectionPath = `artifacts/${appId}/public/data/dolar_alpha_data`;
             dataCaptureCollection = collection(db, collectionPath);
             
@@ -217,11 +227,9 @@
                     ui.loadingScreen.classList.add('hidden');
                     ui.appContainer.classList.remove('hidden');
                     setupCharts();
-                    // Start capture automatically after login
                     toggleCapture(); 
                 } else {
                     try {
-                        // Use custom token if available, otherwise sign in anonymously
                         if (typeof __initial_auth_token !== 'undefined') {
                             await signInWithCustomToken(auth, __initial_auth_token);
                         } else {
@@ -240,9 +248,8 @@
         async function captureDataPoint() {
             let price = null;
             let source = null;
-            const timeoutMs = 2500; // 2.5s timeout
+            const timeoutMs = 2500;
 
-            // Source A (Primary - AwesomeAPI)
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -256,7 +263,6 @@
                 console.warn("Fonte A falhou:", error.message);
             }
 
-            // Source B (Fallback - Fawazahmed0 via jsdelivr CDN) - Only if A fails
             if (price === null) {
                 try {
                     const controller = new AbortController();
@@ -274,7 +280,6 @@
                 }
             }
             
-            // Processing and Storage
             if (price !== null && !isNaN(price)) {
                 try {
                     await addDoc(dataCaptureCollection, {
@@ -313,7 +318,6 @@
 
         function toggleCapture() {
             if (isCapturing) {
-                // Stop Capture
                 clearInterval(captureInterval);
                 isCapturing = false;
                 ui.toggleCaptureBtn.textContent = 'Retomar Coleta';
@@ -321,14 +325,13 @@
                 ui.toggleCaptureBtn.classList.add('bg-green-600', 'hover:bg-green-700');
                 updateCaptureStatus(false);
             } else {
-                // Start Capture
                 isCapturing = true;
                 ui.toggleCaptureBtn.textContent = 'Pausar Coleta';
                 ui.toggleCaptureBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
                 ui.toggleCaptureBtn.classList.add('bg-red-600', 'hover:bg-red-700');
                 ui.captureStatus.textContent = 'Iniciando conexão...';
-                captureDataPoint(); // Immediate capture
-                captureInterval = setInterval(captureDataPoint, 3000); // Every 3 seconds
+                captureDataPoint();
+                captureInterval = setInterval(captureDataPoint, 3000);
             }
         }
 
@@ -337,7 +340,6 @@
         async function loadCapturedData() {
             ui.dataStatus.textContent = 'Carregando dados do DB (Firebase)...';
             try {
-                // Fetching data ordered by timestamp. Note: This requires a Firestore index.
                 const q = query(dataCaptureCollection, orderBy("timestamp", "desc"), limit(5000)); 
                 const querySnapshot = await getDocs(q);
                 
@@ -347,14 +349,12 @@
                     return { price: data.price, date: data.timestamp.toDate() };
                 }).filter(Boolean);
 
-                // Sort data client-side (ascending)
                 ticks.sort((a, b) => a.date - b.date);
 
                 if (ticks.length < 10) {
                     throw new Error("Não há dados capturados suficientes (mínimo 10 ticks).");
                 }
 
-                // Aggregate ticks into 1-minute candles (Base timeframe)
                 const candles = aggregateTicksToCandles(ticks, 1);
                 historicalData = candles;
                 ui.dataStatus.textContent = `Carregado: ${ticks.length} ticks -> ${candles.length} candles (1min).`;
@@ -376,7 +376,6 @@
                 complete: (results) => {
                     try {
                         const parsedData = results.data.map(row => {
-                            // Flexible header detection
                             const dateKey = Object.keys(row).find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('time'));
                             const openKey = Object.keys(row).find(k => k.toLowerCase() === 'open');
                             const highKey = Object.keys(row).find(k => k.toLowerCase() === 'high');
@@ -401,9 +400,8 @@
 
                         historicalData = parsedData;
                         
-                        // Detect if data is daily or intraday based on the interval
                         const intervalMs = historicalData.length > 1 ? historicalData[1].date - historicalData[0].date : 0;
-                        const isDaily = intervalMs >= (24 * 60 * 60 * 1000) - (60 * 1000); // Allow tolerance
+                        const isDaily = intervalMs >= (24 * 60 * 60 * 1000) - (60 * 1000);
 
                         if (isDaily) {
                              ui.dataStatus.textContent = `Carregado: ${historicalData.length} dias.`;
@@ -417,13 +415,12 @@
                         processAndDisplayData();
                     } catch (error) {
                         ui.dataStatus.textContent = `Erro: ${error.message}`;
-                        console.error('Erro ao processar o CSV. Verifique se contém colunas Date/Time, Open, High, Low, Close.');
+                        console.error('Erro ao processar o CSV.');
                     }
                 }
             });
         }
 
-        // Helper function to convert ticks to OHLC candles
         function aggregateTicksToCandles(ticks, intervalMinutes) {
             const candles = [];
             let currentCandle = null;
@@ -445,7 +442,6 @@
             return candles;
         }
 
-        // Helper function to aggregate existing candles into higher timeframes
         function aggregateData(baseData, timeframe) {
             if (['1min', 'Diário'].includes(timeframe)) {
                 return baseData;
@@ -701,7 +697,6 @@
                         ? (exitTrade.price - entryTrade.price) 
                         : (entryTrade.price - exitTrade.price);
                     
-                    // Profit for WDO is (price_diff * 1000) * R$10 per point
                     const profit = profitPoints * 1000 * CONTRACT_MULTIPLIER; 
                     equity += profit;
 
@@ -716,7 +711,6 @@
                     
                     equityCurve.push({ date: exitTrade.date, equity: equity });
 
-                    // Reverse position
                     position = signal.type === 'BUY' ? 'LONG' : 'SHORT';
                     entryTrade = signal;
                 }
