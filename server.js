@@ -1,5 +1,6 @@
-// server.js - v10
-// Lógica de autenticação final ajustada para aguardar o prompt 'Username:' antes de responder.
+// server.js - v11 (Final)
+// Lógica de autenticação ajustada para enviar o username imediatamente após a conexão,
+// que é o comportamento esperado pelo servidor da Cedro para evitar timeout.
 
 const express = require('express');
 const http = require('http');
@@ -21,7 +22,7 @@ const wss = new WebSocket.Server({ server });
 
 let cedroClient = new net.Socket();
 let isAuthenticated = false;
-let authStep = 0; // 0: Esperando Username, 1: Esperando Password, 2: Autenticado
+let authStep = 0; // 0: Conectando, 1: Enviou Username, 2: Enviou Password, 3: Autenticado
 let currentSubscribedSymbol = '';
 let currentServerIndex = 0;
 
@@ -35,9 +36,12 @@ function connectToCedro() {
     isAuthenticated = false;
     authStep = 0;
 
-    // Ação: Apenas conecta. A lógica de autenticação foi movida para o 'on.data'.
+    // Ação principal: Envia o username assim que a conexão é estabelecida para evitar o timeout.
     cedroClient.connect(serverConfig.port, serverConfig.host, () => {
         console.log(`>>> Conexão TCP com ${serverConfig.host} estabelecida com sucesso!`);
+        console.log('Enviando username imediatamente...');
+        cedroClient.write(`${CEDRO_USER}\n`);
+        authStep = 1; // Avança para a etapa de aguardar o prompt de senha.
     });
 
     cedroClient.on('data', (data) => {
@@ -60,15 +64,7 @@ function connectToCedro() {
 
             // --- LÓGICA DE AUTENTICAÇÃO CORRIGIDA ---
             
-            // Etapa 0: Espera especificamente pelo prompt "Username:"
-            if (authStep === 0 && message.includes('Username:')) {
-                console.log('Servidor solicitou Username. Enviando...');
-                cedroClient.write(`${CEDRO_USER}\n`);
-                authStep = 1;
-                return;
-            }
-
-            // Etapa 1: Espera pelo prompt "Password:"
+            // Etapa 1: Já enviamos o username, agora esperamos pelo prompt "Password:"
             if (authStep === 1 && message.includes('Password:')) {
                 console.log('Servidor solicitou Password. Enviando...');
                 cedroClient.write(`${CEDRO_PASS}\n`);
