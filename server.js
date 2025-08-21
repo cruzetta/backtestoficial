@@ -1,6 +1,5 @@
-// server.js - v11 (Final)
-// Lógica de autenticação ajustada para enviar o username imediatamente após a conexão,
-// que é o comportamento esperado pelo servidor da Cedro para evitar timeout.
+// server.js - v12 (Solução Definitiva)
+// Implementa o protocolo de autenticação completo da Cedro, incluindo o passo da "Software Key".
 
 const express = require('express');
 const http = require('http');
@@ -22,7 +21,12 @@ const wss = new WebSocket.Server({ server });
 
 let cedroClient = new net.Socket();
 let isAuthenticated = false;
-let authStep = 0; // 0: Conectando, 1: Enviou Username, 2: Enviou Password, 3: Autenticado
+// Controla as etapas da autenticação:
+// 0: Aguardando prompt inicial (Software Key)
+// 1: Aguardando prompt de Username
+// 2: Aguardando prompt de Password
+// 3: Aguardando confirmação final
+let authStep = 0; 
 let currentSubscribedSymbol = '';
 let currentServerIndex = 0;
 
@@ -36,12 +40,8 @@ function connectToCedro() {
     isAuthenticated = false;
     authStep = 0;
 
-    // Ação principal: Envia o username assim que a conexão é estabelecida para evitar o timeout.
     cedroClient.connect(serverConfig.port, serverConfig.host, () => {
         console.log(`>>> Conexão TCP com ${serverConfig.host} estabelecida com sucesso!`);
-        console.log('Enviando username imediatamente...');
-        cedroClient.write(`${CEDRO_USER}\n`);
-        authStep = 1; // Avança para a etapa de aguardar o prompt de senha.
     });
 
     cedroClient.on('data', (data) => {
@@ -62,22 +62,39 @@ function connectToCedro() {
                 return;
             }
 
-            // --- LÓGICA DE AUTENTICAÇÃO CORRIGIDA ---
+            // --- LÓGICA DE AUTENTICAÇÃO DEFINITIVA (COM SOFTWARE KEY) ---
             
-            // Etapa 1: Já enviamos o username, agora esperamos pelo prompt "Password:"
-            if (authStep === 1 && message.includes('Password:')) {
-                console.log('Servidor solicitou Password. Enviando...');
-                cedroClient.write(`${CEDRO_PASS}\n`);
+            // Etapa 0: O servidor envia o banner inicial. Respondemos com a "Software Key" vazia.
+            if (authStep === 0) {
+                console.log('Recebido prompt inicial. Enviando Software Key (vazia)...');
+                // Enviar uma linha em branco é o equivalente a pressionar Enter.
+                cedroClient.write('\n'); 
+                authStep = 1; // Avança para a próxima etapa
+                return;
+            }
+
+            // Etapa 1: Espera pelo prompt "Username:"
+            if (authStep === 1 && message.includes('Username:')) {
+                console.log('Servidor solicitou Username. Enviando...');
+                cedroClient.write(`${CEDRO_USER}\n`);
                 authStep = 2;
                 return;
             }
 
-            // Etapa 2: Espera pela confirmação final do login
-            if (authStep === 2) {
+            // Etapa 2: Espera pelo prompt "Password:"
+            if (authStep === 2 && message.includes('Password:')) {
+                console.log('Servidor solicitou Password. Enviando...');
+                cedroClient.write(`${CEDRO_PASS}\n`);
+                authStep = 3;
+                return;
+            }
+
+            // Etapa 3: Espera pela confirmação final do login
+            if (authStep === 3) {
                 if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED')) {
                     console.log('>>> AUTENTICAÇÃO NA CEDRO BEM-SUCEDIDA!');
                     isAuthenticated = true;
-                    authStep = 3;
+                    authStep = 4; // Autenticação concluída
                     broadcast(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
                 } else if (message.includes('failed') || message.includes('Invalid')) {
                     console.error('Falha na autenticação da Cedro. Resposta final:', message);
