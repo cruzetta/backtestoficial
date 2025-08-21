@@ -1,5 +1,5 @@
-// server.js - v6
-// Lógica de conexão aprimorada com servidor de fallback e autenticação mais precisa.
+// server.js - v7
+// Lógica de autenticação final ajustada para enviar o username imediatamente após a conexão.
 
 const express = require('express');
 const http = require('http');
@@ -7,7 +7,6 @@ const net = require('net');
 const WebSocket = require('ws');
 
 // --- CONFIGURAÇÕES DA CEDRO ---
-// Adicionado servidor de fallback
 const CEDRO_SERVERS = [
     { host: 'datafeed1.cedrotech.com', port: 81 },
     { host: 'datafeed2.cedrotech.com', port: 81 }
@@ -22,9 +21,9 @@ const wss = new WebSocket.Server({ server });
 
 let cedroClient = new net.Socket();
 let isAuthenticated = false;
-let authStep = 0; // 0: Esperando Username, 1: Esperando Password, 2: Autenticado
+let authStep = 0; // 0: Conectando, 1: Enviou Username, 2: Enviou Password, 3: Autenticado
 let currentSubscribedSymbol = '';
-let currentServerIndex = 0; // Controla qual servidor estamos tentando conectar
+let currentServerIndex = 0;
 
 console.log('Iniciando o servidor ponte para a API Cedro...');
 
@@ -36,8 +35,12 @@ function connectToCedro() {
     isAuthenticated = false;
     authStep = 0;
 
+    // Ação principal: Envia o username assim que a conexão é estabelecida.
     cedroClient.connect(serverConfig.port, serverConfig.host, () => {
         console.log(`>>> Conexão TCP com ${serverConfig.host} estabelecida com sucesso!`);
+        console.log('Enviando username imediatamente...');
+        cedroClient.write(`${CEDRO_USER}\n`);
+        authStep = 1; // Avança para a etapa de aguardar o prompt de senha.
     });
 
     cedroClient.on('data', (data) => {
@@ -60,15 +63,7 @@ function connectToCedro() {
 
             // --- LÓGICA DE AUTENTICAÇÃO CORRIGIDA ---
             
-            // Etapa 0: Espera especificamente pelo prompt "Username:"
-            if (authStep === 0 && message.includes('Username:')) {
-                console.log('Servidor solicitou Username. Enviando...');
-                cedroClient.write(`${CEDRO_USER}\n`);
-                authStep = 1;
-                return;
-            }
-
-            // Etapa 1: Espera pelo prompt "Password:"
+            // Etapa 1: Já enviamos o username, agora esperamos pelo prompt "Password:"
             if (authStep === 1 && message.includes('Password:')) {
                 console.log('Servidor solicitou Password. Enviando...');
                 cedroClient.write(`${CEDRO_PASS}\n`);
@@ -81,6 +76,7 @@ function connectToCedro() {
                 if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED')) {
                     console.log('>>> AUTENTICAÇÃO NA CEDRO BEM-SUCEDIDA!');
                     isAuthenticated = true;
+                    authStep = 3;
                     broadcast(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
                 } else {
                     console.error('Falha na autenticação da Cedro. Resposta final:', message);
@@ -102,10 +98,9 @@ function connectToCedro() {
 
     cedroClient.on('error', (err) => {
         console.error(`### Erro na conexão com ${serverConfig.host}: ${err.message}`);
-        // Lógica de fallback: tenta o próximo servidor da lista
         currentServerIndex = (currentServerIndex + 1) % CEDRO_SERVERS.length;
         console.log(`Alternando para o próximo servidor: ${CEDRO_SERVERS[currentServerIndex].host}`);
-        cedroClient.destroy(); // Garante que a conexão atual seja fechada antes de tentar de novo
+        cedroClient.destroy();
     });
 }
 
