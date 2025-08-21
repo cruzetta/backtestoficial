@@ -151,7 +151,7 @@
         // --- Firebase Configuration (Using environment variables) ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, serverTimestamp, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Global State Variables ---
         let app, auth, db, dataCaptureCollection;
@@ -205,7 +205,7 @@
             auth = getAuth(app);
             db = getFirestore(app);
             
-            // CORRECTED: Use the required path structure for Firestore
+            // Use the required public path structure for Firestore
             const collectionPath = `artifacts/${appId}/public/data/dolar_alpha_data`;
             dataCaptureCollection = collection(db, collectionPath);
             
@@ -303,7 +303,7 @@
             } else if (isCapturing) {
                 statusHTML = `<span class="text-yellow-400">FALHA (${source})</span> | Tentando novamente...`;
                  if (lastCaptureTimestamp) {
-                      statusHTML += ` (Última: ${lastCaptureTimestamp.toLocaleTimeString()})`;
+                       statusHTML += ` (Última: ${lastCaptureTimestamp.toLocaleTimeString()})`;
                  }
             } else {
                 statusHTML = 'Status: <span class="text-gray-500">Pausado</span>';
@@ -337,8 +337,8 @@
         async function loadCapturedData() {
             ui.dataStatus.textContent = 'Carregando dados do DB (Firebase)...';
             try {
-                // CORRECTED: Removed orderBy to avoid indexing issues. Will sort client-side.
-                const q = query(dataCaptureCollection, limit(5000)); 
+                // Fetching data ordered by timestamp. Note: This requires a Firestore index.
+                const q = query(dataCaptureCollection, orderBy("timestamp", "desc"), limit(5000)); 
                 const querySnapshot = await getDocs(q);
                 
                 let ticks = querySnapshot.docs.map(doc => {
@@ -347,7 +347,7 @@
                     return { price: data.price, date: data.timestamp.toDate() };
                 }).filter(Boolean);
 
-                // Sort data client-side
+                // Sort data client-side (ascending)
                 ticks.sort((a, b) => a.date - b.date);
 
                 if (ticks.length < 10) {
@@ -364,7 +364,7 @@
                 processAndDisplayData();
             } catch (error) {
                 console.error("Erro ao carregar dados capturados:", error);
-                ui.dataStatus.textContent = `Erro: ${error.message}`;
+                ui.dataStatus.textContent = `Erro: ${error.message}. Pode ser necessário criar um índice no Firestore.`;
             }
         }
 
@@ -701,6 +701,7 @@
                         ? (exitTrade.price - entryTrade.price) 
                         : (entryTrade.price - exitTrade.price);
                     
+                    // Profit for WDO is (price_diff * 1000) * R$10 per point
                     const profit = profitPoints * 1000 * CONTRACT_MULTIPLIER; 
                     equity += profit;
 
@@ -715,6 +716,7 @@
                     
                     equityCurve.push({ date: exitTrade.date, equity: equity });
 
+                    // Reverse position
                     position = signal.type === 'BUY' ? 'LONG' : 'SHORT';
                     entryTrade = signal;
                 }
@@ -764,7 +766,6 @@
 
             if (fastPeriod >= slowPeriod) {
                 console.error("O período da EMA Rápida deve ser menor que o da EMA Lenta.");
-                // You can replace this with a more user-friendly modal/notification
                 ui.dataStatus.textContent = "Erro: EMA Rápida >= EMA Lenta.";
                 return;
             }
