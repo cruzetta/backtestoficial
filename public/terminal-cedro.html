@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Terminal Day Trade - Conexão Cedro</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Substituímos Chart.js por Lightweight Charts, que é muito mais performático para tempo real -->
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
@@ -43,7 +42,7 @@
     <div id="appContainer" class="hidden">
         <header class="max-w-7xl mx-auto mb-6 relative flex justify-between items-center">
             <div>
-                <h1 id="mainTitle" class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">Terminal Day Trade</h1>
+                <h1 id="mainTitle" class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">Terminal de Commodities</h1>
                 <p class="text-gray-400 text-sm">Conectado via Cedro Technologies</p>
             </div>
             <div class="flex items-center gap-4">
@@ -65,12 +64,24 @@
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <!-- Coluna do Gráfico -->
                 <div class="lg:col-span-3 bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico Intraday (1 min) - WDOFUT</h3>
+                    <h3 id="chartTitle" class="font-semibold text-lg mb-4 text-center text-gray-200">Selecione um ativo para começar</h3>
                     <div id="chartContainer" class="chart-container"></div>
                 </div>
 
                 <!-- Coluna da Boleta e Posição -->
                 <div class="lg:col-span-1 space-y-6">
+                    <!-- Seletor de Ativos -->
+                    <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                        <label for="assetSelector" class="block mb-2 text-sm font-medium text-gray-300">Selecione o Ativo</label>
+                        <select id="assetSelector" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                            <option value="">-- Commodities --</option>
+                            <option value="BGI">Boi Gordo (BGI)</option>
+                            <option value="ICF">Café Arábica (ICF)</option>
+                            <option value="CCM">Milho (CCM)</option>
+                            <option value="SFI">Soja (SFI)</option>
+                        </select>
+                    </div>
+
                     <!-- Boleta de Ordens -->
                     <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
                         <h3 class="font-semibold text-lg mb-4 text-gray-200">Boleta de Ordens</h3>
@@ -80,7 +91,7 @@
                         </div>
                         <div class="space-y-3">
                             <div>
-                                <label for="orderQuantity" class="block mb-1 text-sm font-medium text-gray-300">Quantidade</label>
+                                <label for="orderQuantity" class="block mb-1 text-sm font-medium text-gray-300">Quantidade (Contratos)</label>
                                 <input type="number" id="orderQuantity" value="1" min="1" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
                             </div>
                             <div class="flex gap-3">
@@ -125,20 +136,24 @@
             appId: "1:694914388064:web:e5ac46c00612142d33b305",
             measurementId: "G-YD1CYX3455"
         };
-        const WEBSOCKET_URL = 'ws://localhost:3000'; // URL do seu servidor ponte
-        const AGGREGATION_MINUTES = 1; // Agregar ticks em candles de 1 minuto
+        const WEBSOCKET_URL = 'ws://localhost:3000';
+        const AGGREGATION_MINUTES = 1;
         // ---------------------
 
-        // --- INICIALIZAÇÃO FIREBASE ---
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
 
-        // --- VARIÁVEIS GLOBAIS ---
-        let priceChart, candlestickSeries;
+        let priceChart, candlestickSeries, webSocket;
         let currentCandle = null;
         let dayTradeState = {};
-
-        const market = { name: 'Mini Dólar (WDO)', code: 'WDO', contractSize: 10, unit: 'Pontos', currency: 'BRL' };
+        
+        // Mapeamento de multiplicadores de contrato (crucial para cálculo de P&L)
+        const markets = {
+            'BGI': { name: 'Boi Gordo', contractSize: 330 },
+            'ICF': { name: 'Café Arábica', contractSize: 100 },
+            'CCM': { name: 'Milho', contractSize: 450 },
+            'SFI': { name: 'Soja', contractSize: 450 }
+        };
 
         const ui = {
             loadingScreen: document.getElementById('loadingScreen'),
@@ -149,6 +164,8 @@
             statusDot: document.getElementById('statusDot'),
             statusText: document.getElementById('statusText'),
             chartContainer: document.getElementById('chartContainer'),
+            chartTitle: document.getElementById('chartTitle'),
+            assetSelector: document.getElementById('assetSelector'),
             currentPriceDisplay: document.getElementById('currentPriceDisplay'),
             orderQuantity: document.getElementById('orderQuantity'),
             buyBtn: document.getElementById('buyBtn'),
@@ -162,21 +179,17 @@
             posClosedPnl: document.getElementById('posClosedPnl'),
         };
 
-        // --- LÓGICA DE AUTENTICAÇÃO E INICIALIZAÇÃO ---
+        // --- AUTENTICAÇÃO E INICIALIZAÇÃO ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 ui.userEmail.textContent = user.email;
                 ui.loadingStatus.textContent = "Autenticado. Iniciando terminal...";
-                
-                // Atraso para mostrar a mensagem antes de esconder a tela
                 setTimeout(() => {
                     ui.loadingScreen.classList.add('hidden');
                     ui.appContainer.classList.remove('hidden');
                     initializeAppLogic();
                 }, 1000);
-
             } else {
-                // Se não estiver logado, redireciona para a página de login (index.html)
                 window.location.href = './index.html';
             }
         });
@@ -187,40 +200,47 @@
             connectToServer();
         }
 
-        ui.logoutBtn.addEventListener('click', () => {
-            signOut(auth);
-        });
+        ui.logoutBtn.addEventListener('click', () => signOut(auth));
 
-        // --- LÓGICA DE CONEXÃO WEBSOCKET ---
+        // --- CONEXÃO WEBSOCKET ---
         function connectToServer() {
-            const socket = new WebSocket(WEBSOCKET_URL);
+            webSocket = new WebSocket(WEBSOCKET_URL);
 
-            socket.onopen = () => {
-                updateConnectionStatus('connected', 'Conectado. Aguardando dados...');
+            webSocket.onopen = () => {
+                updateConnectionStatus('connected', 'Conectado. Selecione um ativo.');
             };
 
-            socket.onmessage = (event) => {
+            webSocket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                dayTradeState.currentPrice = data.price;
-                
-                updateUIWithNewPrice(data.price);
-                aggregateTick(data);
+
+                if (data.type === 'tick') {
+                    dayTradeState.currentPrice = data.price;
+                    updateUIWithNewPrice(data.price);
+                    aggregateTick(data);
+                } else if (data.type === 'auth_success') {
+                    // Agora que o backend está autenticado na Cedro, podemos nos inscrever.
+                    console.log('Backend autenticado na Cedro.');
+                    // Se um ativo já estiver selecionado, envia a inscrição.
+                    if (ui.assetSelector.value) {
+                        subscribeToAsset(ui.assetSelector.value);
+                    }
+                }
             };
 
-            socket.onclose = () => {
+            webSocket.onclose = () => {
                 updateConnectionStatus('disconnected', 'Desconectado. Reconectando...');
                 dayTradeState.currentPrice = 0;
                 disableTradingButtons();
                 setTimeout(connectToServer, 3000);
             };
 
-            socket.onerror = (error) => {
+            webSocket.onerror = (error) => {
                 updateConnectionStatus('disconnected', 'Erro de conexão.');
-                socket.close();
+                webSocket.close();
             };
         }
 
-        // --- LÓGICA DE GRÁFICO (LIGHTWEIGHT CHARTS) ---
+        // --- LÓGICA DE GRÁFICO ---
         function setupChart() {
             priceChart = LightweightCharts.createChart(ui.chartContainer, {
                 layout: { backgroundColor: '#1f2937', textColor: '#d1d5db' },
@@ -238,6 +258,12 @@
                    priceChart.resize(ui.chartContainer.clientWidth, ui.chartContainer.clientHeight);
                 }
             });
+        }
+        
+        function resetChart() {
+            // Limpa os dados da série de candles para um novo ativo
+            candlestickSeries.setData([]);
+            currentCandle = null;
         }
 
         function aggregateTick(data) {
@@ -258,9 +284,13 @@
 
         // --- LÓGICA DE TRADING E UI ---
         function resetDayTradeState() {
+            const selectedSymbol = ui.assetSelector.value;
+            const market = markets[selectedSymbol] || { name: 'N/A', contractSize: 1 };
+
             dayTradeState = {
                 position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0,
-                contractSize: market.contractSize, currency: market.currency,
+                contractSize: market.contractSize,
+                currency: 'BRL',
             };
             updatePositionUI();
         }
@@ -367,6 +397,19 @@
             ui.posClosedPnl.className = `font-bold text-lg font-mono day-trade-info-value ${closedPnl >= 0 ? 'positive' : 'negative'}`;
         }
         
+        function subscribeToAsset(symbol) {
+            if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                const command = {
+                    action: 'subscribe',
+                    symbol: symbol
+                };
+                webSocket.send(JSON.stringify(command));
+                updateConnectionStatus('connected', `Inscrito em ${symbol}. Aguardando ticks...`);
+            } else {
+                console.warn('WebSocket não está aberto. Inscrição falhou.');
+            }
+        }
+
         // --- FUNÇÕES UTILITÁRIAS ---
         function updateConnectionStatus(status, text) {
             ui.statusDot.className = `status-dot ${status}`;
@@ -382,7 +425,22 @@
             return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(value); 
         }
 
-        // --- EVENT LISTENERS PARA BOTÕES DE TRADING ---
+        // --- EVENT LISTENERS ---
+        ui.assetSelector.addEventListener('change', (event) => {
+            const selectedSymbol = event.target.value;
+            if (selectedSymbol) {
+                const selectedAssetName = event.target.options[event.target.selectedIndex].text;
+                ui.chartTitle.textContent = `Gráfico Intraday (1 min) - ${selectedAssetName}`;
+                resetChart();
+                resetDayTradeState();
+                subscribeToAsset(selectedSymbol);
+            } else {
+                ui.chartTitle.textContent = 'Selecione um ativo para começar';
+                disableTradingButtons();
+                resetChart();
+            }
+        });
+
         ui.buyBtn.addEventListener('click', () => executeTrade('BUY'));
         ui.sellBtn.addEventListener('click', () => executeTrade('SELL'));
         ui.closePositionBtn.addEventListener('click', () => closePosition(dayTradeState.currentPrice));
