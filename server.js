@@ -1,5 +1,5 @@
-// server.js - v5
-// Correção final na lógica de autenticação e na senha.
+// server.js - v6
+// Lógica de conexão aprimorada com servidor de fallback e autenticação mais precisa.
 
 const express = require('express');
 const http = require('http');
@@ -7,10 +7,13 @@ const net = require('net');
 const WebSocket = require('ws');
 
 // --- CONFIGURAÇÕES DA CEDRO ---
-const CEDRO_HOST = 'datafeed1.cedrotech.com';
-const CEDRO_PORT = 81;
+// Adicionado servidor de fallback
+const CEDRO_SERVERS = [
+    { host: 'datafeed1.cedrotech.com', port: 81 },
+    { host: 'datafeed2.cedrotech.com', port: 81 }
+];
 const CEDRO_USER = 'victor-socket';
-const CEDRO_PASS = 'socket178'; // CORRIGIDO: Removido o caractere inválido no final.
+const CEDRO_PASS = 'socket178';
 // ------------------------------
 
 const app = express();
@@ -19,25 +22,25 @@ const wss = new WebSocket.Server({ server });
 
 let cedroClient = new net.Socket();
 let isAuthenticated = false;
-let authStep = 0; // 0: Esperando prompt inicial, 1: Enviou usuário, 2: Enviou senha
+let authStep = 0; // 0: Esperando Username, 1: Esperando Password, 2: Autenticado
 let currentSubscribedSymbol = '';
+let currentServerIndex = 0; // Controla qual servidor estamos tentando conectar
 
 console.log('Iniciando o servidor ponte para a API Cedro...');
 
 function connectToCedro() {
-    console.log(`Tentando conectar ao servidor da Cedro em ${CEDRO_HOST}:${CEDRO_PORT}...`);
+    const serverConfig = CEDRO_SERVERS[currentServerIndex];
+    console.log(`Tentando conectar ao servidor da Cedro em ${serverConfig.host}:${serverConfig.port}...`);
     
     cedroClient = new net.Socket();
     isAuthenticated = false;
     authStep = 0;
 
-    cedroClient.connect(CEDRO_PORT, CEDRO_HOST, () => {
-        console.log('>>> Conexão TCP com a Cedro estabelecida com sucesso!');
+    cedroClient.connect(serverConfig.port, serverConfig.host, () => {
+        console.log(`>>> Conexão TCP com ${serverConfig.host} estabelecida com sucesso!`);
     });
 
     cedroClient.on('data', (data) => {
-        // O servidor da Cedro pode enviar múltiplas mensagens em um único pacote de dados.
-        // Por isso, separamos as mensagens por quebra de linha.
         const messages = data.toString().trim().split(/[\r\n]+/).filter(m => m);
         
         messages.forEach(message => {
@@ -55,17 +58,17 @@ function connectToCedro() {
                 return;
             }
 
-            // --- LÓGICA DE AUTENTICAÇÃO PASSO A PASSO ---
+            // --- LÓGICA DE AUTENTICAÇÃO CORRIGIDA ---
             
-            // Etapa 0: Esperando qualquer prompt inicial para enviar o usuário
-            if (authStep === 0) {
-                console.log('Recebido prompt inicial. Enviando Username...');
+            // Etapa 0: Espera especificamente pelo prompt "Username:"
+            if (authStep === 0 && message.includes('Username:')) {
+                console.log('Servidor solicitou Username. Enviando...');
                 cedroClient.write(`${CEDRO_USER}\n`);
                 authStep = 1;
                 return;
             }
 
-            // Etapa 1: Esperando o prompt de senha para enviar a senha
+            // Etapa 1: Espera pelo prompt "Password:"
             if (authStep === 1 && message.includes('Password:')) {
                 console.log('Servidor solicitou Password. Enviando...');
                 cedroClient.write(`${CEDRO_PASS}\n`);
@@ -73,7 +76,7 @@ function connectToCedro() {
                 return;
             }
 
-            // Etapa 2: Esperando a confirmação final do login
+            // Etapa 2: Espera pela confirmação final do login
             if (authStep === 2) {
                 if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED')) {
                     console.log('>>> AUTENTICAÇÃO NA CEDRO BEM-SUCEDIDA!');
@@ -98,7 +101,11 @@ function connectToCedro() {
     });
 
     cedroClient.on('error', (err) => {
-        console.error('### Erro na conexão com a Cedro:', err.message);
+        console.error(`### Erro na conexão com ${serverConfig.host}: ${err.message}`);
+        // Lógica de fallback: tenta o próximo servidor da lista
+        currentServerIndex = (currentServerIndex + 1) % CEDRO_SERVERS.length;
+        console.log(`Alternando para o próximo servidor: ${CEDRO_SERVERS[currentServerIndex].host}`);
+        cedroClient.destroy(); // Garante que a conexão atual seja fechada antes de tentar de novo
     });
 }
 
