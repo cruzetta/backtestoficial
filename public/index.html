@@ -433,13 +433,22 @@
                 tab.addEventListener('click', () => switchPage(key));
                 ui.pageTabs.appendChild(tab);
             });
-            // Adiciona link para Day Trade
+            
+            // Adiciona link para Day Trade (Simulação com Alpha Vantage)
             const dayTradeLink = document.createElement('a');
             dayTradeLink.href = `./daytrade.html?asset=${activePageKey}`;
             dayTradeLink.id = 'dayTradeLink';
             dayTradeLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-indigo-500';
             dayTradeLink.textContent = 'Day Trade (Simulação)';
             ui.pageTabs.appendChild(dayTradeLink);
+
+            // Adiciona link para Day Trade Dólar (Tempo Real com AwesomeAPI)
+            const dayTradeDolarLink = document.createElement('a');
+            dayTradeDolarLink.href = './daytrade-dolar.html'; // Link direto para a nova página
+            dayTradeDolarLink.id = 'dayTradeDolarLink';
+            dayTradeDolarLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-green-500'; // Cor diferente
+            dayTradeDolarLink.textContent = 'Day Trade Dólar (Real-Time)';
+            ui.pageTabs.appendChild(dayTradeDolarLink);
         }
 
         async function switchPage(pageKey) {
