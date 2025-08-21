@@ -123,326 +123,328 @@
     </div>
     
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
+        // CORREÇÃO: Envolvemos todo o código em um 'DOMContentLoaded' para garantir que a página e as bibliotecas estejam prontas.
+        document.addEventListener('DOMContentLoaded', () => {
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+            import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
 
-        // --- CONFIGURAÇÕES ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
-            authDomain: "backtest-f5072.firebaseapp.com",
-            projectId: "backtest-f5072",
-            storageBucket: "backtest-f5072.appspot.com",
-            messagingSenderId: "694914388064",
-            appId: "1:694914388064:web:e5ac46c00612142d33b305",
-            measurementId: "G-YD1CYX3455"
-        };
-        const WEBSOCKET_URL = 'ws://localhost:3000';
-        const AGGREGATION_MINUTES = 1;
-        // ---------------------
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-
-        let priceChart, candlestickSeries, webSocket;
-        let currentCandle = null;
-        let dayTradeState = {};
-        
-        const markets = {
-            'BGI': { name: 'Boi Gordo', contractSize: 330 },
-            'ICF': { name: 'Café Arábica', contractSize: 100 },
-            'CCM': { name: 'Milho', contractSize: 450 },
-            'SFI': { name: 'Soja', contractSize: 450 }
-        };
-
-        const ui = {
-            loadingScreen: document.getElementById('loadingScreen'),
-            loadingStatus: document.getElementById('loadingStatus'),
-            appContainer: document.getElementById('appContainer'),
-            userEmail: document.getElementById('userEmail'),
-            logoutBtn: document.getElementById('logoutBtn'),
-            statusDot: document.getElementById('statusDot'),
-            statusText: document.getElementById('statusText'),
-            chartContainer: document.getElementById('chartContainer'),
-            chartTitle: document.getElementById('chartTitle'),
-            assetSelector: document.getElementById('assetSelector'),
-            currentPriceDisplay: document.getElementById('currentPriceDisplay'),
-            orderQuantity: document.getElementById('orderQuantity'),
-            buyBtn: document.getElementById('buyBtn'),
-            sellBtn: document.getElementById('sellBtn'),
-            closePositionBtn: document.getElementById('closePositionBtn'),
-            reversePositionBtn: document.getElementById('reversePositionBtn'),
-            posStatus: document.getElementById('posStatus'),
-            posQuantity: document.getElementById('posQuantity'),
-            posAvgPrice: document.getElementById('posAvgPrice'),
-            posOpenPnl: document.getElementById('posOpenPnl'),
-            posClosedPnl: document.getElementById('posClosedPnl'),
-        };
-
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                ui.userEmail.textContent = user.email;
-                ui.loadingStatus.textContent = "Autenticado. Iniciando terminal...";
-                setTimeout(() => {
-                    ui.loadingScreen.classList.add('hidden');
-                    ui.appContainer.classList.remove('hidden');
-                    initializeAppLogic();
-                }, 1000);
-            } else {
-                window.location.href = './index.html';
-            }
-        });
-        
-        function initializeAppLogic() {
-            setupChart();
-            resetDayTradeState();
-            connectToServer();
-        }
-
-        ui.logoutBtn.addEventListener('click', () => signOut(auth));
-
-        function connectToServer() {
-            webSocket = new WebSocket(WEBSOCKET_URL);
-
-            webSocket.onopen = () => {
-                updateConnectionStatus('connected', 'Conectado. Aguardando autenticação...');
+            // --- CONFIGURAÇÕES ---
+            const firebaseConfig = {
+                apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
+                authDomain: "backtest-f5072.firebaseapp.com",
+                projectId: "backtest-f5072",
+                storageBucket: "backtest-f5072.appspot.com",
+                messagingSenderId: "694914388064",
+                appId: "1:694914388064:web:e5ac46c00612142d33b305",
+                measurementId: "G-YD1CYX3455"
             };
+            const WEBSOCKET_URL = 'ws://localhost:3000';
+            const AGGREGATION_MINUTES = 1;
+            // ---------------------
 
-            webSocket.onmessage = (event) => {
-                const data = JSON.parse(event.data);
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
 
-                if (data.type === 'tick') {
-                    dayTradeState.currentPrice = data.price;
-                    updateUIWithNewPrice(data.price);
-                    aggregateTick(data);
-                } else if (data.type === 'auth_success') {
-                    console.log('Backend autenticado na Cedro.');
-                    // MUDANÇA: Seleciona e se inscreve automaticamente no primeiro ativo (BGI)
-                    const defaultAsset = 'BGI';
-                    ui.assetSelector.value = defaultAsset;
-                    const event = new Event('change');
-                    ui.assetSelector.dispatchEvent(event);
-                }
-            };
-
-            webSocket.onclose = () => {
-                updateConnectionStatus('disconnected', 'Desconectado. Reconectando...');
-                dayTradeState.currentPrice = 0;
-                disableTradingButtons();
-                setTimeout(connectToServer, 3000);
-            };
-
-            webSocket.onerror = (error) => {
-                updateConnectionStatus('disconnected', 'Erro de conexão.');
-                webSocket.close();
-            };
-        }
-
-        function setupChart() {
-            priceChart = LightweightCharts.createChart(ui.chartContainer, {
-                layout: { backgroundColor: '#1f2937', textColor: '#d1d5db' },
-                grid: { vertLines: { color: '#374151' }, horzLines: { color: '#374151' } },
-                rightPriceScale: { borderColor: '#4b5563' },
-                timeScale: { borderColor: '#4b5563', timeVisible: true, secondsVisible: false },
-                localization: { locale: 'pt-BR' }
-            });
-            candlestickSeries = priceChart.addCandlestickSeries({
-                upColor: '#22c55e', downColor: '#ef4444',
-                borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-            });
-             window.addEventListener('resize', () => {
-                if (ui.chartContainer.clientWidth > 0) {
-                   priceChart.resize(ui.chartContainer.clientWidth, ui.chartContainer.clientHeight);
-                }
-            });
-        }
-        
-        function resetChart() {
-            candlestickSeries.setData([]);
-            currentCandle = null;
-        }
-
-        function aggregateTick(data) {
-            const intervalMs = AGGREGATION_MINUTES * 60 * 1000;
-            const candleTimestamp = Math.floor(data.timestamp / intervalMs) * intervalMs / 1000;
+            let priceChart, candlestickSeries, webSocket;
+            let currentCandle = null;
+            let dayTradeState = {};
             
-            if (!currentCandle || currentCandle.time !== candleTimestamp) {
-                currentCandle = {
-                    time: candleTimestamp, open: data.price, high: data.price, low: data.price, close: data.price,
+            const markets = {
+                'BGI': { name: 'Boi Gordo', contractSize: 330 },
+                'ICF': { name: 'Café Arábica', contractSize: 100 },
+                'CCM': { name: 'Milho', contractSize: 450 },
+                'SFI': { name: 'Soja', contractSize: 450 }
+            };
+
+            const ui = {
+                loadingScreen: document.getElementById('loadingScreen'),
+                loadingStatus: document.getElementById('loadingStatus'),
+                appContainer: document.getElementById('appContainer'),
+                userEmail: document.getElementById('userEmail'),
+                logoutBtn: document.getElementById('logoutBtn'),
+                statusDot: document.getElementById('statusDot'),
+                statusText: document.getElementById('statusText'),
+                chartContainer: document.getElementById('chartContainer'),
+                chartTitle: document.getElementById('chartTitle'),
+                assetSelector: document.getElementById('assetSelector'),
+                currentPriceDisplay: document.getElementById('currentPriceDisplay'),
+                orderQuantity: document.getElementById('orderQuantity'),
+                buyBtn: document.getElementById('buyBtn'),
+                sellBtn: document.getElementById('sellBtn'),
+                closePositionBtn: document.getElementById('closePositionBtn'),
+                reversePositionBtn: document.getElementById('reversePositionBtn'),
+                posStatus: document.getElementById('posStatus'),
+                posQuantity: document.getElementById('posQuantity'),
+                posAvgPrice: document.getElementById('posAvgPrice'),
+                posOpenPnl: document.getElementById('posOpenPnl'),
+                posClosedPnl: document.getElementById('posClosedPnl'),
+            };
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    ui.userEmail.textContent = user.email;
+                    ui.loadingStatus.textContent = "Autenticado. Iniciando terminal...";
+                    setTimeout(() => {
+                        ui.loadingScreen.classList.add('hidden');
+                        ui.appContainer.classList.remove('hidden');
+                        initializeAppLogic();
+                    }, 1000);
+                } else {
+                    window.location.href = './index.html';
+                }
+            });
+            
+            function initializeAppLogic() {
+                setupChart();
+                resetDayTradeState();
+                connectToServer();
+            }
+
+            ui.logoutBtn.addEventListener('click', () => signOut(auth));
+
+            function connectToServer() {
+                webSocket = new WebSocket(WEBSOCKET_URL);
+
+                webSocket.onopen = () => {
+                    updateConnectionStatus('connected', 'Conectado. Aguardando autenticação...');
                 };
-            } else {
-                currentCandle.high = Math.max(currentCandle.high, data.price);
-                currentCandle.low = Math.min(currentCandle.low, data.price);
-                currentCandle.close = data.price;
+
+                webSocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'tick') {
+                        dayTradeState.currentPrice = data.price;
+                        updateUIWithNewPrice(data.price);
+                        aggregateTick(data);
+                    } else if (data.type === 'auth_success') {
+                        console.log('Backend autenticado na Cedro.');
+                        const defaultAsset = 'BGI';
+                        ui.assetSelector.value = defaultAsset;
+                        const event = new Event('change');
+                        ui.assetSelector.dispatchEvent(event);
+                    }
+                };
+
+                webSocket.onclose = () => {
+                    updateConnectionStatus('disconnected', 'Desconectado. Reconectando...');
+                    dayTradeState.currentPrice = 0;
+                    disableTradingButtons();
+                    setTimeout(connectToServer, 3000);
+                };
+
+                webSocket.onerror = (error) => {
+                    updateConnectionStatus('disconnected', 'Erro de conexão.');
+                    webSocket.close();
+                };
             }
-            candlestickSeries.update(currentCandle);
-        }
 
-        function resetDayTradeState() {
-            const selectedSymbol = ui.assetSelector.value;
-            const market = markets[selectedSymbol] || { name: 'N/A', contractSize: 1 };
-
-            dayTradeState = {
-                position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0,
-                contractSize: market.contractSize,
-                currency: 'BRL',
-            };
-            updatePositionUI();
-        }
-        
-        function updateUIWithNewPrice(price) {
-            if (price > 0 && ui.buyBtn.disabled) {
-                enableTradingButtons();
+            function setupChart() {
+                // A biblioteca LightweightCharts é adicionada ao objeto 'window'
+                priceChart = window.LightweightCharts.createChart(ui.chartContainer, {
+                    layout: { backgroundColor: '#1f2937', textColor: '#d1d5db' },
+                    grid: { vertLines: { color: '#374151' }, horzLines: { color: '#374151' } },
+                    rightPriceScale: { borderColor: '#4b5563' },
+                    timeScale: { borderColor: '#4b5563', timeVisible: true, secondsVisible: false },
+                    localization: { locale: 'pt-BR' }
+                });
+                candlestickSeries = priceChart.addCandlestickSeries({
+                    upColor: '#22c55e', downColor: '#ef4444',
+                    borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+                });
+                window.addEventListener('resize', () => {
+                    if (ui.chartContainer.clientWidth > 0) {
+                    priceChart.resize(ui.chartContainer.clientWidth, ui.chartContainer.clientHeight);
+                    }
+                });
             }
-            ui.currentPriceDisplay.textContent = price.toFixed(2);
-            calculateOpenPnl();
-            updatePositionUI();
-        }
-
-        function executeTrade(type, forcedQuantity = null) {
-            const quantity = forcedQuantity || parseInt(ui.orderQuantity.value);
-            const price = dayTradeState.currentPrice;
-            if (quantity <= 0 || price <= 0) return;
-
-            const currentPosition = dayTradeState.position;
-            const currentQty = dayTradeState.quantity;
             
-            if (type === 'BUY') {
-                if (currentPosition === 'FLAT') {
-                    dayTradeState.position = 'LONG';
-                    dayTradeState.avgPrice = price;
-                    dayTradeState.quantity = quantity;
-                } else if (currentPosition === 'LONG') {
-                    dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
-                    dayTradeState.quantity += quantity;
-                } else { // SHORT
-                    const qtyToClose = Math.min(quantity, currentQty);
-                    const remainingQty = quantity - qtyToClose;
-                    closePosition(price, qtyToClose);
-                    if (remainingQty > 0) {
+            function resetChart() {
+                candlestickSeries.setData([]);
+                currentCandle = null;
+            }
+
+            function aggregateTick(data) {
+                const intervalMs = AGGREGATION_MINUTES * 60 * 1000;
+                const candleTimestamp = Math.floor(data.timestamp / intervalMs) * intervalMs / 1000;
+                
+                if (!currentCandle || currentCandle.time !== candleTimestamp) {
+                    currentCandle = {
+                        time: candleTimestamp, open: data.price, high: data.price, low: data.price, close: data.price,
+                    };
+                } else {
+                    currentCandle.high = Math.max(currentCandle.high, data.price);
+                    currentCandle.low = Math.min(currentCandle.low, data.price);
+                    currentCandle.close = data.price;
+                }
+                candlestickSeries.update(currentCandle);
+            }
+
+            function resetDayTradeState() {
+                const selectedSymbol = ui.assetSelector.value;
+                const market = markets[selectedSymbol] || { name: 'N/A', contractSize: 1 };
+
+                dayTradeState = {
+                    position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0,
+                    contractSize: market.contractSize,
+                    currency: 'BRL',
+                };
+                updatePositionUI();
+            }
+            
+            function updateUIWithNewPrice(price) {
+                if (price > 0 && ui.buyBtn.disabled) {
+                    enableTradingButtons();
+                }
+                ui.currentPriceDisplay.textContent = price.toFixed(2);
+                calculateOpenPnl();
+                updatePositionUI();
+            }
+
+            function executeTrade(type, forcedQuantity = null) {
+                const quantity = forcedQuantity || parseInt(ui.orderQuantity.value);
+                const price = dayTradeState.currentPrice;
+                if (quantity <= 0 || price <= 0) return;
+
+                const currentPosition = dayTradeState.position;
+                const currentQty = dayTradeState.quantity;
+                
+                if (type === 'BUY') {
+                    if (currentPosition === 'FLAT') {
                         dayTradeState.position = 'LONG';
                         dayTradeState.avgPrice = price;
-                        dayTradeState.quantity = remainingQty;
+                        dayTradeState.quantity = quantity;
+                    } else if (currentPosition === 'LONG') {
+                        dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
+                        dayTradeState.quantity += quantity;
+                    } else { // SHORT
+                        const qtyToClose = Math.min(quantity, currentQty);
+                        const remainingQty = quantity - qtyToClose;
+                        closePosition(price, qtyToClose);
+                        if (remainingQty > 0) {
+                            dayTradeState.position = 'LONG';
+                            dayTradeState.avgPrice = price;
+                            dayTradeState.quantity = remainingQty;
+                        }
                     }
-                }
-            } else if (type === 'SELL') {
-                 if (currentPosition === 'FLAT') {
-                    dayTradeState.position = 'SHORT';
-                    dayTradeState.avgPrice = price;
-                    dayTradeState.quantity = quantity;
-                } else if (currentPosition === 'SHORT') {
-                    dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
-                    dayTradeState.quantity += quantity;
-                } else { // LONG
-                    const qtyToClose = Math.min(quantity, currentQty);
-                    const remainingQty = quantity - qtyToClose;
-                    closePosition(price, qtyToClose);
-                    if (remainingQty > 0) {
+                } else if (type === 'SELL') {
+                    if (currentPosition === 'FLAT') {
                         dayTradeState.position = 'SHORT';
                         dayTradeState.avgPrice = price;
-                        dayTradeState.quantity = remainingQty;
+                        dayTradeState.quantity = quantity;
+                    } else if (currentPosition === 'SHORT') {
+                        dayTradeState.avgPrice = ((dayTradeState.avgPrice * currentQty) + (price * quantity)) / (currentQty + quantity);
+                        dayTradeState.quantity += quantity;
+                    } else { // LONG
+                        const qtyToClose = Math.min(quantity, currentQty);
+                        const remainingQty = quantity - qtyToClose;
+                        closePosition(price, qtyToClose);
+                        if (remainingQty > 0) {
+                            dayTradeState.position = 'SHORT';
+                            dayTradeState.avgPrice = price;
+                            dayTradeState.quantity = remainingQty;
+                        }
                     }
                 }
+                updatePositionUI();
             }
-            updatePositionUI();
-        }
 
-        function closePosition(price, qtyToClose = dayTradeState.quantity) {
-            if (dayTradeState.position === 'FLAT' || qtyToClose <= 0) return;
+            function closePosition(price, qtyToClose = dayTradeState.quantity) {
+                if (dayTradeState.position === 'FLAT' || qtyToClose <= 0) return;
+                
+                const pnl = (dayTradeState.position === 'LONG') 
+                    ? (price - dayTradeState.avgPrice) * qtyToClose * dayTradeState.contractSize
+                    : (dayTradeState.avgPrice - price) * qtyToClose * dayTradeState.contractSize;
+
+                dayTradeState.closedPnl += pnl;
+                dayTradeState.quantity -= qtyToClose;
+
+                if (dayTradeState.quantity <= 0) {
+                    dayTradeState.position = 'FLAT';
+                    dayTradeState.quantity = 0;
+                    dayTradeState.avgPrice = 0;
+                    dayTradeState.openPnl = 0;
+                }
+                updatePositionUI();
+            }
             
-            const pnl = (dayTradeState.position === 'LONG') 
-                ? (price - dayTradeState.avgPrice) * qtyToClose * dayTradeState.contractSize
-                : (dayTradeState.avgPrice - price) * qtyToClose * dayTradeState.contractSize;
-
-            dayTradeState.closedPnl += pnl;
-            dayTradeState.quantity -= qtyToClose;
-
-            if (dayTradeState.quantity <= 0) {
-                dayTradeState.position = 'FLAT';
-                dayTradeState.quantity = 0;
-                dayTradeState.avgPrice = 0;
-                dayTradeState.openPnl = 0;
+            function calculateOpenPnl() {
+                if (dayTradeState.position === 'FLAT') {
+                    dayTradeState.openPnl = 0;
+                    return;
+                }
+                const price = dayTradeState.currentPrice;
+                const pnl = (dayTradeState.position === 'LONG')
+                    ? (price - dayTradeState.avgPrice) * dayTradeState.quantity * dayTradeState.contractSize
+                    : (dayTradeState.avgPrice - price) * dayTradeState.quantity * dayTradeState.contractSize;
+                dayTradeState.openPnl = pnl;
             }
-            updatePositionUI();
-        }
-        
-        function calculateOpenPnl() {
-            if (dayTradeState.position === 'FLAT') {
-                dayTradeState.openPnl = 0;
-                return;
-            }
-            const price = dayTradeState.currentPrice;
-            const pnl = (dayTradeState.position === 'LONG')
-                ? (price - dayTradeState.avgPrice) * dayTradeState.quantity * dayTradeState.contractSize
-                : (dayTradeState.avgPrice - price) * dayTradeState.quantity * dayTradeState.contractSize;
-            dayTradeState.openPnl = pnl;
-        }
 
-        function updatePositionUI() {
-            const { position, quantity, avgPrice, openPnl, closedPnl, currency } = dayTradeState;
-            ui.posStatus.textContent = position === 'LONG' ? 'Comprado' : position === 'SHORT' ? 'Vendido' : 'Zerado';
-            ui.posQuantity.textContent = quantity;
-            ui.posAvgPrice.textContent = avgPrice.toFixed(2);
+            function updatePositionUI() {
+                const { position, quantity, avgPrice, openPnl, closedPnl, currency } = dayTradeState;
+                ui.posStatus.textContent = position === 'LONG' ? 'Comprado' : position === 'SHORT' ? 'Vendido' : 'Zerado';
+                ui.posQuantity.textContent = quantity;
+                ui.posAvgPrice.textContent = avgPrice.toFixed(2);
+                
+                const fmtr = (v) => formatCurrency(v, currency);
+                ui.posOpenPnl.textContent = fmtr(openPnl);
+                ui.posOpenPnl.className = `font-bold text-lg font-mono day-trade-info-value ${openPnl >= 0 ? 'positive' : 'negative'}`;
+                
+                ui.posClosedPnl.textContent = fmtr(closedPnl);
+                ui.posClosedPnl.className = `font-bold text-lg font-mono day-trade-info-value ${closedPnl >= 0 ? 'positive' : 'negative'}`;
+            }
             
-            const fmtr = (v) => formatCurrency(v, currency);
-            ui.posOpenPnl.textContent = fmtr(openPnl);
-            ui.posOpenPnl.className = `font-bold text-lg font-mono day-trade-info-value ${openPnl >= 0 ? 'positive' : 'negative'}`;
-            
-            ui.posClosedPnl.textContent = fmtr(closedPnl);
-            ui.posClosedPnl.className = `font-bold text-lg font-mono day-trade-info-value ${closedPnl >= 0 ? 'positive' : 'negative'}`;
-        }
-        
-        function subscribeToAsset(symbol) {
-            if (webSocket && webSocket.readyState === WebSocket.OPEN) {
-                const command = {
-                    action: 'subscribe',
-                    symbol: symbol
-                };
-                webSocket.send(JSON.stringify(command));
-                updateConnectionStatus('connected', `Inscrito em ${symbol}. Aguardando ticks...`);
-            } else {
-                console.warn('WebSocket não está aberto. Inscrição falhou.');
+            function subscribeToAsset(symbol) {
+                if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                    const command = {
+                        action: 'subscribe',
+                        symbol: symbol
+                    };
+                    webSocket.send(JSON.stringify(command));
+                    updateConnectionStatus('connected', `Inscrito em ${symbol}. Aguardando ticks...`);
+                } else {
+                    console.warn('WebSocket não está aberto. Inscrição falhou.');
+                }
             }
-        }
 
-        function updateConnectionStatus(status, text) {
-            ui.statusDot.className = `status-dot ${status}`;
-            ui.statusText.textContent = text;
-        }
-        function enableTradingButtons() {
-            [ui.buyBtn, ui.sellBtn, ui.closePositionBtn, ui.reversePositionBtn].forEach(btn => btn.disabled = false);
-        }
-        function disableTradingButtons() {
-            [ui.buyBtn, ui.sellBtn, ui.closePositionBtn, ui.reversePositionBtn].forEach(btn => btn.disabled = true);
-        }
-        function formatCurrency(value, currency = 'BRL') { 
-            return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(value); 
-        }
-
-        ui.assetSelector.addEventListener('change', (event) => {
-            const selectedSymbol = event.target.value;
-            if (selectedSymbol) {
-                const selectedAssetName = event.target.options[event.target.selectedIndex].text;
-                ui.chartTitle.textContent = `Gráfico Intraday (1 min) - ${selectedAssetName}`;
-                resetChart();
-                resetDayTradeState();
-                subscribeToAsset(selectedSymbol);
-            } else {
-                ui.chartTitle.textContent = 'Selecione um ativo para começar';
-                disableTradingButtons();
-                resetChart();
+            function updateConnectionStatus(status, text) {
+                ui.statusDot.className = `status-dot ${status}`;
+                ui.statusText.textContent = text;
             }
+            function enableTradingButtons() {
+                [ui.buyBtn, ui.sellBtn, ui.closePositionBtn, ui.reversePositionBtn].forEach(btn => btn.disabled = false);
+            }
+            function disableTradingButtons() {
+                [ui.buyBtn, ui.sellBtn, ui.closePositionBtn, ui.reversePositionBtn].forEach(btn => btn.disabled = true);
+            }
+            function formatCurrency(value, currency = 'BRL') { 
+                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(value); 
+            }
+
+            ui.assetSelector.addEventListener('change', (event) => {
+                const selectedSymbol = event.target.value;
+                if (selectedSymbol) {
+                    const selectedAssetName = event.target.options[event.target.selectedIndex].text;
+                    ui.chartTitle.textContent = `Gráfico Intraday (1 min) - ${selectedAssetName}`;
+                    resetChart();
+                    resetDayTradeState();
+                    subscribeToAsset(selectedSymbol);
+                } else {
+                    ui.chartTitle.textContent = 'Selecione um ativo para começar';
+                    disableTradingButtons();
+                    resetChart();
+                }
+            });
+
+            ui.buyBtn.addEventListener('click', () => executeTrade('BUY'));
+            ui.sellBtn.addEventListener('click', () => executeTrade('SELL'));
+            ui.closePositionBtn.addEventListener('click', () => closePosition(dayTradeState.currentPrice));
+            ui.reversePositionBtn.addEventListener('click', () => {
+                if (dayTradeState.position === 'FLAT') return;
+                const qtyToReverse = dayTradeState.quantity * 2;
+                const tradeType = dayTradeState.position === 'LONG' ? 'SELL' : 'BUY';
+                executeTrade(tradeType, qtyToReverse);
+            });
         });
-
-        ui.buyBtn.addEventListener('click', () => executeTrade('BUY'));
-        ui.sellBtn.addEventListener('click', () => executeTrade('SELL'));
-        ui.closePositionBtn.addEventListener('click', () => closePosition(dayTradeState.currentPrice));
-        ui.reversePositionBtn.addEventListener('click', () => {
-            if (dayTradeState.position === 'FLAT') return;
-            const qtyToReverse = dayTradeState.quantity * 2;
-            const tradeType = dayTradeState.position === 'LONG' ? 'SELL' : 'BUY';
-            executeTrade(tradeType, qtyToReverse);
-        });
-
     </script>
 </body>
 </html>
