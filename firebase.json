@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "backtest-f5072",
     "public": "public",
     "ignore": [
       "firebase.json",
