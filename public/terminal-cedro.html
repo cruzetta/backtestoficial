@@ -123,11 +123,12 @@
     </div>
     
     <script type="module">
-        // CORREÇÃO: Envolvemos todo o código em um 'DOMContentLoaded' para garantir que a página e as bibliotecas estejam prontas.
-        document.addEventListener('DOMContentLoaded', () => {
-            import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-            import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
+        // CORREÇÃO: Módulos importados no topo para garantir o carregamento correto.
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
 
+        // O restante do código só roda após a página estar completamente carregada.
+        document.addEventListener('DOMContentLoaded', () => {
             // --- CONFIGURAÇÕES ---
             const firebaseConfig = {
                 apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
@@ -239,7 +240,6 @@
             }
 
             function setupChart() {
-                // A biblioteca LightweightCharts é adicionada ao objeto 'window'
                 priceChart = window.LightweightCharts.createChart(ui.chartContainer, {
                     layout: { backgroundColor: '#1f2937', textColor: '#d1d5db' },
                     grid: { vertLines: { color: '#374151' }, horzLines: { color: '#374151' } },
