@@ -423,31 +423,38 @@
 
         function createPageTabs() {
             ui.pageTabs.innerHTML = '';
-            // Adiciona abas de mercado
+            // Adiciona abas de mercado para backtest
             Object.keys(markets).forEach(key => {
                 const market = markets[key];
                 const tab = document.createElement('button');
                 tab.id = `tab-${key}`;
                 tab.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600';
-                tab.textContent = market.name;
+                tab.textContent = `Backtest ${market.name}`;
                 tab.addEventListener('click', () => switchPage(key));
                 ui.pageTabs.appendChild(tab);
             });
             
-            // Adiciona link para Day Trade (Simulação com Alpha Vantage)
+            // Adiciona link para o novo Terminal de Commodities
+            const terminalCedroLink = document.createElement('a');
+            terminalCedroLink.href = './terminal-cedro.html';
+            terminalCedroLink.id = 'terminalCedroLink';
+            terminalCedroLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-4 border-purple-500';
+            terminalCedroLink.textContent = 'Terminal Commodities (Cedro)';
+            ui.pageTabs.appendChild(terminalCedroLink);
+
+            // Adiciona links para as simulações antigas (opcional)
             const dayTradeLink = document.createElement('a');
             dayTradeLink.href = `./daytrade.html?asset=${activePageKey}`;
             dayTradeLink.id = 'dayTradeLink';
             dayTradeLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-indigo-500';
-            dayTradeLink.textContent = 'Day Trade (Simulação)';
+            dayTradeLink.textContent = 'Simulação (Alpha Vantage)';
             ui.pageTabs.appendChild(dayTradeLink);
 
-            // Adiciona link para Day Trade Dólar (Tempo Real com AwesomeAPI)
             const dayTradeDolarLink = document.createElement('a');
-            dayTradeDolarLink.href = './daytrade-dolar.html'; // Link direto para a nova página
+            dayTradeDolarLink.href = './daytrade-dolar.html';
             dayTradeDolarLink.id = 'dayTradeDolarLink';
-            dayTradeDolarLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-green-500'; // Cor diferente
-            dayTradeDolarLink.textContent = 'Day Trade Dólar (Real-Time)';
+            dayTradeDolarLink.className = 'page-tab py-2 px-4 rounded-md font-semibold bg-gray-700 hover:bg-gray-600 border-l-2 border-green-500';
+            dayTradeDolarLink.textContent = 'Simulação Dólar (API Pública)';
             ui.pageTabs.appendChild(dayTradeDolarLink);
         }
 
@@ -456,7 +463,6 @@
             document.querySelectorAll('.page-tab').forEach(tab => tab.classList.remove('active'));
             document.getElementById(`tab-${pageKey}`).classList.add('active');
             
-            // Atualiza o link da página de day trade para o ativo atual
             const dayTradeLink = document.getElementById('dayTradeLink');
             if(dayTradeLink) dayTradeLink.href = `./daytrade.html?asset=${pageKey}`;
 
