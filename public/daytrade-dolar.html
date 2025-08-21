@@ -26,7 +26,6 @@
 </head>
 <body class="bg-gray-900 text-white p-4 sm:p-6 md:p-8">
 
-    <!-- TELA DE LOADING INICIAL -->
     <div id="loadingScreen" class="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center p-4">
         <div class="text-center max-w-2xl">
             <div class="loader inline-block"></div>
@@ -34,7 +33,6 @@
         </div>
     </div>
 
-    <!-- CONTEÚDO PRINCIPAL -->
     <div id="appContainer" class="hidden max-w-screen-2xl mx-auto">
         <header class="text-center mb-6 relative">
             <h1 class="text-3xl sm:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-500">Day Trade Dólar PRO</h1>
@@ -48,9 +46,7 @@
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <!-- COLUNA DE CONTROLES E BOLETA -->
             <div class="lg:col-span-1 space-y-6">
-                <!-- Card de Configuração -->
                 <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
                     <h3 class="font-semibold text-lg mb-4 text-gray-200">1. Carregar Dados Históricos</h3>
                     <div class="space-y-4">
@@ -61,7 +57,6 @@
                     </div>
                 </div>
 
-                <!-- Card de Backtest -->
                 <div id="backtestControls" class="bg-gray-800 p-4 rounded-lg shadow-lg hidden">
                     <h3 class="font-semibold text-lg mb-4 text-gray-200">2. Backtest</h3>
                     <div class="space-y-4">
@@ -86,7 +81,6 @@
                     </div>
                 </div>
                 
-                <!-- Boleta de Simulação -->
                 <div id="simulationControls" class="bg-gray-800 p-4 rounded-lg shadow-lg hidden">
                     <h3 class="font-semibold text-lg mb-4 text-gray-200">3. Simulação (Ao Vivo)</h3>
                     <div class="bg-gray-900/50 p-3 rounded-lg text-center mb-4">
@@ -95,8 +89,8 @@
                     </div>
                     <div class="space-y-3">
                         <div>
-                            <label for="orderQuantity" class="block mb-1 text-sm font-medium text-gray-300">Quantidade (USD)</label>
-                            <input type="number" id="orderQuantity" value="100" min="1" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg w-full p-2.5">
+                            <label for="orderQuantity" class="block mb-1 text-sm font-medium text-gray-300">Quantidade (Contratos)</label>
+                            <input type="number" id="orderQuantity" value="1" min="1" class="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg w-full p-2.5">
                         </div>
                         <div class="flex gap-3">
                             <button id="buyBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">COMPRAR</button>
@@ -118,7 +112,6 @@
                 </div>
             </div>
 
-            <!-- COLUNA PRINCIPAL DE GRÁFICOS E RESULTADOS -->
             <div class="lg:col-span-3 space-y-6">
                 <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
                     <h3 class="font-semibold text-lg mb-4 text-center text-gray-200">Gráfico - USD/BRL (<span id="chartTimeframeLabel">Diário</span>)</h3>
@@ -126,7 +119,6 @@
                     <div id="chartError" class="hidden text-center text-red-400 p-4"></div>
                 </div>
 
-                <!-- Seção de Resultados do Backtest -->
                 <div id="resultsSection" class="hidden bg-gray-800 p-6 rounded-lg shadow-lg">
                     <h2 class="text-2xl font-bold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">Resultados do Backtest</h2>
                     <div id="statsContainer" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
@@ -135,7 +127,6 @@
                     </div>
                 </div>
 
-                <!-- Seção de Resultados da Otimização -->
                 <div id="optimizationResultsSection" class="hidden bg-gray-800 p-6 rounded-lg shadow-lg">
                     <h2 class="text-2xl font-bold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-500">Resultados da Otimização</h2>
                     <div id="bestResultDisplay" class="bg-gray-900/50 border-2 border-green-500 p-4 rounded-lg mb-6 text-center max-w-md mx-auto"></div>
@@ -170,6 +161,8 @@
         let aggregatedData = [];
         let replayInterval = null;
         const ALPHA_VANTAGE_API_KEY = 'S4P8G3AM85JSR29T';
+        // --- CORREÇÃO: Adicionado multiplicador do contrato de mini-dólar ---
+        const CONTRACT_MULTIPLIER = 10000;
 
         const ui = {
             loadingScreen: document.getElementById('loadingScreen'),
@@ -385,6 +378,7 @@
 
         function displayOptimizationResults(results) {
              const fmtr = (v) => formatCurrency(v, 'BRL');
+             if (results.length === 0) return;
              const bestResult = results.reduce((max, current) => current.totalProfit > max.totalProfit ? current : max, results[0]);
              ui.bestResultDisplay.innerHTML = `<p class="text-sm text-gray-400">Melhor Resultado</p><h4 class="text-2xl font-bold text-green-400">Média de ${bestResult.period}</h4><p class="text-md text-gray-300">Lucro: <strong>${fmtr(bestResult.totalProfit)}</strong></p>`;
              let tableHTML = `<thead class="text-xs text-gray-200 uppercase bg-gray-700 sticky top-0"><tr><th class="px-4 py-2 text-center">Período</th><th class="px-4 py-2 text-right">Resultado</th><th class="px-4 py-2 text-right">Acerto</th><th class="px-4 py-2 text-right">Trades</th></tr></thead><tbody>`;
@@ -433,6 +427,7 @@
         }
         
         function calculateSMA(data, period) { return data.map((row, i, arr) => (i < period - 1) ? { ...row, sma: null } : { ...row, sma: arr.slice(i - period + 1, i + 1).reduce((acc, curr) => acc + curr.close, 0) / period }); }
+        
         function generateSignals(data) {
             const trades = []; let position = 'FLAT';
             for (let i = 1; i < data.length; i++) {
@@ -443,13 +438,15 @@
             }
             return { trades };
         }
+        
         function calculateStats(trades) {
             if (trades.length < 2) return { totalProfit: 0, winRate: 0, maxDrawdown: 0, totalTrades: trades.length };
             let totalProfit = 0, wins = 0, closedTradesCount = 0;
             const equityCurve = [0];
             for (let i = 0; i < trades.length - 1; i++) {
                 const entry = trades[i], exit = trades[i+1];
-                const profit = (entry.type === 'BUY') ? (exit.price - entry.price) : (entry.price - exit.price);
+                // --- CORREÇÃO: Aplicado o multiplicador do contrato ---
+                const profit = ((entry.type === 'BUY') ? (exit.price - entry.price) : (entry.price - exit.price)) * CONTRACT_MULTIPLIER;
                 if (profit > 0) wins++;
                 totalProfit += profit;
                 closedTradesCount++;
@@ -459,12 +456,14 @@
             equityCurve.forEach(equity => { if (equity > peak) peak = equity; if (peak - equity > maxDrawdown) maxDrawdown = peak - equity; });
             return { totalProfit, winRate: (wins / closedTradesCount) * 100 || 0, maxDrawdown, totalTrades: trades.length };
         }
+        
         function formatCurrency(v, c = 'BRL') { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: c }).format(v); }
 
         function resetSimulationState() {
-            dayTradeState = { position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0, contractSize: 1 };
+            dayTradeState = { position: 'FLAT', quantity: 0, avgPrice: 0, openPnl: 0, closedPnl: 0, currentPrice: 0 };
             updatePositionUI();
         }
+
         function executeTrade(type, forcedQuantity = null) {
             const quantity = forcedQuantity || parseInt(ui.orderQuantity.value);
             const price = dayTradeState.currentPrice;
@@ -481,19 +480,24 @@
             }
             updatePositionUI();
         }
+
         function closePosition(price, qtyToClose = dayTradeState.quantity) {
             if (dayTradeState.position === 'FLAT' || qtyToClose <= 0) return;
-            const pnl = (dayTradeState.position === 'LONG') ? (price - dayTradeState.avgPrice) * qtyToClose : (dayTradeState.avgPrice - price) * qtyToClose;
+            // --- CORREÇÃO: Aplicado o multiplicador do contrato ---
+            const pnl = ((dayTradeState.position === 'LONG') ? (price - dayTradeState.avgPrice) : (dayTradeState.avgPrice - price)) * qtyToClose * CONTRACT_MULTIPLIER;
             dayTradeState.closedPnl += pnl;
             dayTradeState.quantity -= qtyToClose;
             if (dayTradeState.quantity <= 0) { dayTradeState.position = 'FLAT'; dayTradeState.quantity = 0; dayTradeState.avgPrice = 0; dayTradeState.openPnl = 0; }
             updatePositionUI();
         }
+        
         function calculateOpenPnl() {
             if (dayTradeState.position === 'FLAT') { dayTradeState.openPnl = 0; return; }
-            const pnl = (dayTradeState.position === 'LONG') ? (dayTradeState.currentPrice - dayTradeState.avgPrice) * dayTradeState.quantity : (dayTradeState.avgPrice - dayTradeState.currentPrice) * dayTradeState.quantity;
+            // --- CORREÇÃO: Aplicado o multiplicador do contrato ---
+            const pnl = ((dayTradeState.position === 'LONG') ? (dayTradeState.currentPrice - dayTradeState.avgPrice) : (dayTradeState.avgPrice - dayTradeState.currentPrice)) * dayTradeState.quantity * CONTRACT_MULTIPLIER;
             dayTradeState.openPnl = pnl;
         }
+
         function updatePositionUI() {
             const { position, quantity, avgPrice, openPnl, closedPnl } = dayTradeState;
             ui.posStatus.textContent = position === 'LONG' ? 'Comprado' : position === 'SHORT' ? 'Vendido' : 'Zerado';
