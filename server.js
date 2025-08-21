@@ -1,6 +1,6 @@
-// server.js - v2
-// Servidor ponte atualizado para lidar com múltiplos ativos de commodities
-// e permitir que o frontend selecione qual ativo monitorar.
+// server.js - v3
+// Servidor ponte com lógica de autenticação corrigida.
+// Agora ele aguarda a mensagem de boas-vindas do servidor antes de enviar o login.
 
 const express = require('express');
 const http = require('http');
@@ -19,8 +19,9 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 let cedroClient = new net.Socket();
-let isCedroConnected = false;
-let currentSubscribedSymbol = ''; // Armazena o símbolo do ativo que estamos monitorando
+let isAuthenticated = false;
+let hasSentLogin = false; // Novo: Controla se já enviamos o comando de login
+let currentSubscribedSymbol = '';
 
 console.log('Iniciando o servidor ponte para a API Cedro...');
 
@@ -28,32 +29,52 @@ function connectToCedro() {
     console.log(`Tentando conectar ao servidor da Cedro em ${CEDRO_HOST}:${CEDRO_PORT}...`);
     
     cedroClient = new net.Socket();
+    // Reseta o estado da conexão
+    isAuthenticated = false;
+    hasSentLogin = false;
+
     cedroClient.connect(CEDRO_PORT, CEDRO_HOST, () => {
         console.log('>>> Conexão TCP com a Cedro estabelecida com sucesso!');
-        const loginMessage = `${CEDRO_USER}\n${CEDRO_PASS}\n`;
-        console.log('Enviando credenciais para autenticação...');
-        cedroClient.write(loginMessage);
+        // Correção: Não envia o login imediatamente. Aguarda a mensagem do servidor.
     });
 
     cedroClient.on('data', (data) => {
         const message = data.toString().trim();
-        
-        if (!isCedroConnected) {
-            if (message.includes('AUTHORIZED') || message.includes('OK') || message.includes('connected')) {
-                 console.log('>>> Autenticação na Cedro bem-sucedida!');
-                 isCedroConnected = true;
-                 // Não se inscreve em nenhum ativo por padrão, aguarda o comando do frontend.
-                 broadcast(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
+        // Novo: Log para vermos TUDO que a Cedro envia
+        console.log(`[CEDRO RAW]: ${message}`);
+
+        // Etapa 1: Receber a mensagem de boas-vindas e enviar o login
+        if (!hasSentLogin) {
+            // A mensagem que vimos no log era "Connecting..."
+            if (message.includes('Connecting...')) {
+                console.log('Recebida mensagem de boas-vindas. Enviando credenciais...');
+                // Correção: Tenta um formato de login mais explícito.
+                // Este formato precisa ser confirmado pela documentação oficial.
+                const loginMessage = `LOGIN ${CEDRO_USER} ${CEDRO_PASS}\n`; 
+                cedroClient.write(loginMessage);
+                hasSentLogin = true;
             } else {
-                console.error('Falha na autenticação da Cedro:', message);
+                console.log('Mensagem inesperada recebida antes do login. Fechando conexão.');
                 cedroClient.destroy();
             }
             return;
         }
 
-        // --- PARSING DOS DADOS DE MERCADO ---
-        // A documentação da Cedro é crucial aqui.
-        // Simulando um formato: "CODIGO_ATIVO|PRECO|..."
+        // Etapa 2: Após enviar o login, aguardar a confirmação de autenticação
+        if (!isAuthenticated) {
+            // A documentação deve dizer qual é a mensagem de sucesso. Ex: "OK", "AUTHORIZED"
+            if (message.includes('OK') || message.includes('AUTHORIZED') || message.includes('Login successful')) {
+                 console.log('>>> Autenticação na Cedro bem-sucedida!');
+                 isAuthenticated = true;
+                 broadcast(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
+            } else {
+                console.error('Falha na autenticação da Cedro. Resposta:', message);
+                cedroClient.destroy(); // Encerra a conexão se a autenticação falhar
+            }
+            return;
+        }
+
+        // Etapa 3: Se já estiver autenticado, processar os dados de mercado
         const parts = message.split('|');
         const symbol = parts[0];
         const price = parseFloat(parts[1]?.replace(',', '.'));
@@ -71,7 +92,8 @@ function connectToCedro() {
 
     cedroClient.on('close', () => {
         console.log('!!! Conexão com a Cedro foi fechada. Tentando reconectar em 5 segundos...');
-        isCedroConnected = false;
+        isAuthenticated = false;
+        hasSentLogin = false;
         currentSubscribedSymbol = '';
         broadcast(JSON.stringify({ type: 'cedro_disconnected' }));
         setTimeout(connectToCedro, 5000);
@@ -98,17 +120,12 @@ wss.on('connection', ws => {
     ws.on('message', message => {
         try {
             const command = JSON.parse(message);
-            // O frontend vai enviar um comando para se inscrever em um ativo
-            if (command.action === 'subscribe' && command.symbol && isCedroConnected) {
-                
-                // Se já estiver inscrito em outro ativo, cancela a inscrição anterior
+            if (command.action === 'subscribe' && command.symbol && isAuthenticated) {
                 if (currentSubscribedSymbol && currentSubscribedSymbol !== command.symbol) {
                     console.log(`Cancelando inscrição de ${currentSubscribedSymbol}`);
                     cedroClient.write(`UNSUBSCRIBE|${currentSubscribedSymbol}\n`);
                 }
-
                 console.log(`Frontend solicitou inscrição para o ativo: ${command.symbol}`);
-                // O comando de inscrição deve ser verificado na documentação. Ex: "SUBSCRIBE|CODIGO"
                 cedroClient.write(`SUBSCRIBE|${command.symbol}\n`);
                 currentSubscribedSymbol = command.symbol;
             }
