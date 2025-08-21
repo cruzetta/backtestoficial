@@ -147,7 +147,6 @@
         let currentCandle = null;
         let dayTradeState = {};
         
-        // Mapeamento de multiplicadores de contrato (crucial para cálculo de P&L)
         const markets = {
             'BGI': { name: 'Boi Gordo', contractSize: 330 },
             'ICF': { name: 'Café Arábica', contractSize: 100 },
@@ -179,7 +178,6 @@
             posClosedPnl: document.getElementById('posClosedPnl'),
         };
 
-        // --- AUTENTICAÇÃO E INICIALIZAÇÃO ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 ui.userEmail.textContent = user.email;
@@ -202,12 +200,11 @@
 
         ui.logoutBtn.addEventListener('click', () => signOut(auth));
 
-        // --- CONEXÃO WEBSOCKET ---
         function connectToServer() {
             webSocket = new WebSocket(WEBSOCKET_URL);
 
             webSocket.onopen = () => {
-                updateConnectionStatus('connected', 'Conectado. Selecione um ativo.');
+                updateConnectionStatus('connected', 'Conectado. Aguardando autenticação...');
             };
 
             webSocket.onmessage = (event) => {
@@ -218,12 +215,12 @@
                     updateUIWithNewPrice(data.price);
                     aggregateTick(data);
                 } else if (data.type === 'auth_success') {
-                    // Agora que o backend está autenticado na Cedro, podemos nos inscrever.
                     console.log('Backend autenticado na Cedro.');
-                    // Se um ativo já estiver selecionado, envia a inscrição.
-                    if (ui.assetSelector.value) {
-                        subscribeToAsset(ui.assetSelector.value);
-                    }
+                    // MUDANÇA: Seleciona e se inscreve automaticamente no primeiro ativo (BGI)
+                    const defaultAsset = 'BGI';
+                    ui.assetSelector.value = defaultAsset;
+                    const event = new Event('change');
+                    ui.assetSelector.dispatchEvent(event);
                 }
             };
 
@@ -240,7 +237,6 @@
             };
         }
 
-        // --- LÓGICA DE GRÁFICO ---
         function setupChart() {
             priceChart = LightweightCharts.createChart(ui.chartContainer, {
                 layout: { backgroundColor: '#1f2937', textColor: '#d1d5db' },
@@ -261,7 +257,6 @@
         }
         
         function resetChart() {
-            // Limpa os dados da série de candles para um novo ativo
             candlestickSeries.setData([]);
             currentCandle = null;
         }
@@ -282,7 +277,6 @@
             candlestickSeries.update(currentCandle);
         }
 
-        // --- LÓGICA DE TRADING E UI ---
         function resetDayTradeState() {
             const selectedSymbol = ui.assetSelector.value;
             const market = markets[selectedSymbol] || { name: 'N/A', contractSize: 1 };
@@ -410,7 +404,6 @@
             }
         }
 
-        // --- FUNÇÕES UTILITÁRIAS ---
         function updateConnectionStatus(status, text) {
             ui.statusDot.className = `status-dot ${status}`;
             ui.statusText.textContent = text;
@@ -425,7 +418,6 @@
             return new Intl.NumberFormat('pt-BR', { style: 'currency', currency }).format(value); 
         }
 
-        // --- EVENT LISTENERS ---
         ui.assetSelector.addEventListener('change', (event) => {
             const selectedSymbol = event.target.value;
             if (selectedSymbol) {
