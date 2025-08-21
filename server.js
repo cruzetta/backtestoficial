@@ -1,5 +1,5 @@
-// server.js - v12 (Solução Definitiva)
-// Implementa o protocolo de autenticação completo da Cedro, incluindo o passo da "Software Key".
+// server.js - v13 (Ajuste Final de Sucesso)
+// Adiciona a mensagem "You are connected" à lógica de autenticação.
 
 const express = require('express');
 const http = require('http');
@@ -51,6 +51,9 @@ function connectToCedro() {
             console.log(`[CEDRO RAW]: ${message}`);
 
             if (isAuthenticated) {
+                // Ignora as mensagens de sincronização (SYN)
+                if (message === 'SYN') return;
+
                 const parts = message.split('|');
                 const symbol = parts[0];
                 const price = parseFloat(parts[1]?.replace(',', '.'));
@@ -67,9 +70,8 @@ function connectToCedro() {
             // Etapa 0: O servidor envia o banner inicial. Respondemos com a "Software Key" vazia.
             if (authStep === 0) {
                 console.log('Recebido prompt inicial. Enviando Software Key (vazia)...');
-                // Enviar uma linha em branco é o equivalente a pressionar Enter.
                 cedroClient.write('\n'); 
-                authStep = 1; // Avança para a próxima etapa
+                authStep = 1;
                 return;
             }
 
@@ -91,7 +93,8 @@ function connectToCedro() {
 
             // Etapa 3: Espera pela confirmação final do login
             if (authStep === 3) {
-                if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED')) {
+                // CORREÇÃO: Adicionado "You are connected" como uma mensagem de sucesso válida.
+                if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED') || message.includes('You are connected')) {
                     console.log('>>> AUTENTICAÇÃO NA CEDRO BEM-SUCEDIDA!');
                     isAuthenticated = true;
                     authStep = 4; // Autenticação concluída
@@ -100,7 +103,7 @@ function connectToCedro() {
                     console.error('Falha na autenticação da Cedro. Resposta final:', message);
                     cedroClient.destroy();
                 }
-                return;
+                // Não retorna aqui, para que possa processar múltiplas mensagens de sucesso se necessário
             }
         });
     });
