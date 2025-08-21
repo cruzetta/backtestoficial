@@ -123,13 +123,10 @@
     </div>
     
     <script type="module">
-        // CORREÇÃO: Módulos importados no topo para garantir o carregamento correto.
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js";
 
-        // O restante do código só roda após a página estar completamente carregada.
         document.addEventListener('DOMContentLoaded', () => {
-            // --- CONFIGURAÇÕES ---
             const firebaseConfig = {
                 apiKey: "AIzaSyCMIdzeoPFrT8WRElUBes7GTrcsoGzLBiI",
                 authDomain: "backtest-f5072.firebaseapp.com",
@@ -141,7 +138,6 @@
             };
             const WEBSOCKET_URL = 'ws://localhost:3000';
             const AGGREGATION_MINUTES = 1;
-            // ---------------------
 
             const app = initializeApp(firebaseConfig);
             const auth = getAuth(app);

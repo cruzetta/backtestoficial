@@ -1,5 +1,5 @@
-// server.js - v13 (Ajuste Final de Sucesso)
-// Adiciona a mensagem "You are connected" à lógica de autenticação.
+// server.js - v14 (Solução Definitiva com Estado de Conexão)
+// Garante que qualquer novo cliente receba o status de autenticação ao se conectar.
 
 const express = require('express');
 const http = require('http');
@@ -19,13 +19,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-let cedroClient = new net.Socket();
 let isAuthenticated = false;
-// Controla as etapas da autenticação:
-// 0: Aguardando prompt inicial (Software Key)
-// 1: Aguardando prompt de Username
-// 2: Aguardando prompt de Password
-// 3: Aguardando confirmação final
 let authStep = 0; 
 let currentSubscribedSymbol = '';
 let currentServerIndex = 0;
@@ -51,8 +45,7 @@ function connectToCedro() {
             console.log(`[CEDRO RAW]: ${message}`);
 
             if (isAuthenticated) {
-                // Ignora as mensagens de sincronização (SYN)
-                if (message === 'SYN') return;
+                if (message === 'SYN') return; // Ignora mensagens de sincronização
 
                 const parts = message.split('|');
                 const symbol = parts[0];
@@ -65,45 +58,35 @@ function connectToCedro() {
                 return;
             }
 
-            // --- LÓGICA DE AUTENTICAÇÃO DEFINITIVA (COM SOFTWARE KEY) ---
-            
-            // Etapa 0: O servidor envia o banner inicial. Respondemos com a "Software Key" vazia.
+            // --- LÓGICA DE AUTENTICAÇÃO ---
             if (authStep === 0) {
                 console.log('Recebido prompt inicial. Enviando Software Key (vazia)...');
                 cedroClient.write('\n'); 
                 authStep = 1;
                 return;
             }
-
-            // Etapa 1: Espera pelo prompt "Username:"
             if (authStep === 1 && message.includes('Username:')) {
                 console.log('Servidor solicitou Username. Enviando...');
                 cedroClient.write(`${CEDRO_USER}\n`);
                 authStep = 2;
                 return;
             }
-
-            // Etapa 2: Espera pelo prompt "Password:"
             if (authStep === 2 && message.includes('Password:')) {
                 console.log('Servidor solicitou Password. Enviando...');
                 cedroClient.write(`${CEDRO_PASS}\n`);
                 authStep = 3;
                 return;
             }
-
-            // Etapa 3: Espera pela confirmação final do login
             if (authStep === 3) {
-                // CORREÇÃO: Adicionado "You are connected" como uma mensagem de sucesso válida.
                 if (message.includes('OK') || message.includes('successful') || message.includes('AUTHORIZED') || message.includes('You are connected')) {
                     console.log('>>> AUTENTICAÇÃO NA CEDRO BEM-SUCEDIDA!');
                     isAuthenticated = true;
-                    authStep = 4; // Autenticação concluída
+                    authStep = 4;
                     broadcast(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
                 } else if (message.includes('failed') || message.includes('Invalid')) {
                     console.error('Falha na autenticação da Cedro. Resposta final:', message);
                     cedroClient.destroy();
                 }
-                // Não retorna aqui, para que possa processar múltiplas mensagens de sucesso se necessário
             }
         });
     });
@@ -133,8 +116,16 @@ function broadcast(data) {
     });
 }
 
+// --- PONTO CRÍTICO DA CORREÇÃO ---
 wss.on('connection', ws => {
     console.log('Novo cliente (navegador) conectado.');
+
+    // Se o servidor já estiver autenticado com a Cedro,
+    // notifica o novo cliente imediatamente para que ele não perca o status.
+    if (isAuthenticated) {
+        console.log('Enviando status de autenticação para o novo cliente.');
+        ws.send(JSON.stringify({ type: 'auth_success', message: 'Autenticado na Cedro.' }));
+    }
 
     ws.on('message', message => {
         try {
